@@ -4180,6 +4180,8 @@ __dhd_sendpkt(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 		return ret;
 	}
 #endif
+	/* Set the 802.1X packet with the highest priority 7 */
+	pktset8021xprio(pktbuf, PRIO_8021D_NC);
 
 #ifdef PROP_TXSTATUS
 	if (dhd_wlfc_is_supported(dhdp)) {

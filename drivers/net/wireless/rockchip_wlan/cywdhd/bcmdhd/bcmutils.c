@@ -920,6 +920,23 @@ pktgetdscp(uint8 *pktdata, uint pktlen, uint8 *dscp)
 	return rc;
 }
 
+/* Add to adjust the 802.1x priority */
+void
+pktset8021xprio(void *pkt, int prio)
+{
+	struct ether_header *eh;
+	uint8 *pktdata;
+	if(prio == PKTPRIO(pkt))
+		return;
+	pktdata = (uint8 *)PKTDATA(OSH_NULL, pkt);
+	ASSERT(ISALIGNED((uintptr)pktdata, sizeof(uint16)));
+	eh = (struct ether_header *) pktdata;
+	if (eh->ether_type == hton16(ETHER_TYPE_802_1X)) {
+		ASSERT(prio >= 0 && prio <= MAXPRIO);
+		PKTSETPRIO(pkt, prio);
+	}
+}
+
 /* usr_prio range from low to high with usr_prio value */
 static bool
 up_table_set(uint8 *up_table, uint8 usr_prio, uint8 low, uint8 high)
