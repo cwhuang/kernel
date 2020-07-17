@@ -1,0 +1,150 @@
+/*
+ * Copyright (c) 2020 AAEON Technology Inc.
+ *
+ * SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+ */
+
+/dts-v1/;
+#include "rk3288-evb-android-rk808-edp.dtsi"
+
+/delete-node/ &vcc_wl;
+/delete-node/ &vcc_lcd;
+
+/ {
+	model = "AAEON rico_3288 board";
+	compatible = "rockchip,rk3288-evb-android-rk808-edp", "rockchip,rk3288";
+	chosen: chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M swiotlb=1 console=ttyFIQ0 androidboot.baseband=N/A androidboot.veritymode=enforcing androidboot.hardware=rk30board androidboot.console=ttyFIQ0 init=/init kpti=0";
+	};
+
+	panel {
+		status = "disabled";
+	};
+
+	vcc50_hdmi: vcc50-hdmi {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc50_hdmi";
+		regulator-always-on;
+		enable-active-high;
+		gpio = <&gpio7 RK_PB4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hdmi_en>;
+	};
+
+	hub_3v3: hub-3v3 {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio2 RK_PB1 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&phy_pwr_en>;
+		regulator-name = "hub_3v3";
+		regulator-always-on;
+	};
+
+	vusb2_5v: vusb2-5v {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio8 RK_PB1 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb2_pwr_en>;
+		regulator-name = "vusb2_5v";
+		regulator-always-on;
+	};
+};
+
+&io_domains {
+	status = "okay";
+
+	audio-supply = <&vcc_18>;
+	dvp-supply = <&vcc_18>;
+	flash1-supply = <&vcc_lan>;
+	lcdc-supply = <&vcc_io>;
+	wifi-supply = <&vcc_18>;
+};
+
+&isp_mmu {
+	status = "okay";
+};
+
+&edp {
+	status = "disabled";
+};
+
+&route_hdmi {
+	status = "okay";
+};
+
+&vcc_sys {
+	regulator-min-microvolt = <3710000>;
+	regulator-max-microvolt = <3710000>;
+};
+
+&vopb {
+	assigned-clocks = <&cru DCLK_VOP0>;
+	assigned-clock-parents = <&cru PLL_GPLL>;
+};
+
+&vopl {
+	assigned-clocks = <&cru DCLK_VOP1>;
+	assigned-clock-parents = <&cru PLL_CPLL>;
+};
+
+&rk808 {
+	vcc7-supply = <&vcc_sys>;
+	vcc9-supply = <&vcc_sys>;
+	vcc10-supply = <&vcc_sys>;
+	vcc11-supply = <&vcc_sys>;
+
+	regulators {
+		DCDC_REG1 {
+			regulator-min-microvolt = <700000>;
+			regulator-max-microvolt = <1500000>;
+		};
+
+		DCDC_REG2 {
+			regulator-min-microvolt = <700000>;
+			regulator-max-microvolt = <1500000>;
+		};
+
+		vcc_gps: LDO_REG4 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-name = "vcc_gps";
+			regulator-state-mem {
+				regulator-on-in-suspend;
+			};
+		};
+
+		LDO_REG5 {
+			regulator-min-microvolt = <3300000>;
+		};
+
+		vcc_lan: SWITCH_REG2 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-name = "vcc_lan";
+			regulator-state-mem {
+				regulator-off-in-suspend;
+			};
+		};
+	};
+};
+
+&pinctrl {
+	hdmi {
+		hdmi_en: hdmi-en {
+			rockchip,pins = <7 12 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	usb {
+		phy_pwr_en: phy-pwr-en {
+			rockchip,pins = <2 9 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+		usb2_pwr_en: usb2-pwr-en {
+			rockchip,pins = <8 9 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
