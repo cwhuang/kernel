@@ -33,6 +33,11 @@ void kbase_backend_gpuprops_get(struct kbase_device *kbdev,
 
 	/* Fill regdump with the content of the relevant registers */
 	regdump->gpu_id = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_ID), NULL);
+	if (regdump->gpu_id == 0x7500001) { /* 0x0750 r0p0 status 1 */
+		i = regdump->gpu_id;
+		regdump->gpu_id = 0x7501000; /* 0x0750 r1p0 status 0 */
+		dev_info(kbdev->dev, "change 0x%x to 0x%x", i, regdump->gpu_id);
+	}
 
 	regdump->l2_features = kbase_reg_read(kbdev,
 				GPU_CONTROL_REG(L2_FEATURES), NULL);
