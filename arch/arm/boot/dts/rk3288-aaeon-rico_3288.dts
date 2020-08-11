@@ -61,6 +61,22 @@
 	};
 };
 
+&i2c4 {
+	/delete-node/ gsl3673@40;
+
+	touch@38 {
+		compatible = "focaltech,fts";
+		status = "okay";
+		reg = <0x38>;
+		focaltech,reset-gpio = <&gpio2 RK_PB6 GPIO_ACTIVE_HIGH>;
+		focaltech,irq-gpio = <&gpio7 RK_PA5 IRQ_TYPE_EDGE_FALLING>;
+		focaltech,max-touch-number = <5>;
+		focaltech,display-coords = <0 0 800 1280>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&fts_irq_gpio>;
+	};
+};
+
 &io_domains {
 	status = "okay";
 
@@ -218,6 +234,12 @@
 };
 
 &pinctrl {
+	fts {
+		fts_irq_gpio: fts-irq-gpio {
+			rockchip,pins = <7 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
 	hdmi {
 		hdmi_en: hdmi-en {
 			rockchip,pins = <7 12 RK_FUNC_GPIO &pcfg_pull_up>;
