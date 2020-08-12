@@ -612,31 +612,6 @@ static void fts_report_value(struct fts_ts_data *data)
 }
 
 /*****************************************************************************
-*  Name: fts_touch_irq_work
-*  Brief:
-*  Input:
-*  Output:
-*  Return:
-*****************************************************************************/
-static void fts_touch_irq_work(struct work_struct *work)
-{
-	int ret = -1;
-
-#if FTS_ESDCHECK_EN
-	fts_esdcheck_set_intr(1);
-#endif
-	ret = fts_read_touchdata(fts_wq_data);
-	if (ret == 0) {
-		fts_report_value(fts_wq_data);
-	}
-
-	enable_irq(fts_wq_data->client->irq);
-#if FTS_ESDCHECK_EN
-	fts_esdcheck_set_intr(0);
-#endif
-}
-
-/*****************************************************************************
 *  Name: fts_ts_interrupt
 *  Brief:
 *  Input:
@@ -645,15 +620,27 @@ static void fts_touch_irq_work(struct work_struct *work)
 *****************************************************************************/
 static irqreturn_t fts_ts_interrupt(int irq, void *dev_id)
 {
+	int ret = -1;
 	struct fts_ts_data *fts_ts = dev_id;
 
 	if (!fts_ts) {
 		FTS_ERROR("[INTR]: Invalid fts_ts");
 		return IRQ_HANDLED;
 	}
-	disable_irq_nosync(fts_ts->client->irq);
+	disable_irq_nosync(irq);
 
-	queue_work(fts_ts->ts_workqueue, &fts_ts->touch_event_work);
+#if FTS_ESDCHECK_EN
+	fts_esdcheck_set_intr(1);
+#endif
+	ret = fts_read_touchdata(fts_ts);
+	if (ret == 0) {
+		fts_report_value(fts_ts);
+	}
+
+	enable_irq(irq);
+#if FTS_ESDCHECK_EN
+	fts_esdcheck_set_intr(0);
+#endif
 
 	return IRQ_HANDLED;
 }
@@ -1019,14 +1006,6 @@ static int fts_ts_probe(struct i2c_client *client,
 	fts_reset_proc(200);
 	fts_wait_tp_to_valid(client);
 
-	INIT_WORK(&data->touch_event_work, fts_touch_irq_work);
-	data->ts_workqueue = create_workqueue(FTS_WORKQUEUE_NAME);
-	if (!data->ts_workqueue) {
-		err = -ESRCH;
-		FTS_ERROR("Create touch workqueue failed");
-		goto exit_create_singlethread;
-	}
-
 	fts_ctpm_get_upgrade_array();
 
 	err = request_threaded_irq(client->irq, NULL, fts_ts_interrupt,
@@ -1126,8 +1105,6 @@ static int fts_ts_remove(struct i2c_client *client)
 	struct fts_ts_data *data = i2c_get_clientdata(client);
 
 	FTS_FUNC_ENTER();
-	cancel_work_sync(&data->touch_event_work);
-	destroy_workqueue(data->ts_workqueue);
 
 #if FTS_PSENSOR_EN
 	fts_sensor_remove(data);
@@ -1200,7 +1177,7 @@ static int fts_ts_suspend(struct device *dev)
 	retval = fts_gesture_suspend(data->client);
 	if (retval == 0) {
 		/* Enter into gesture mode(suspend) */
-		retval = enable_irq_wake(fts_wq_data->client->irq);
+		retval = enable_irq_wake(data->client->irq);
 		if (retval)
 			FTS_ERROR("%s: set_irq_wake failed", __func__);
 		data->suspended = true;
@@ -1280,8 +1257,7 @@ static int fts_ts_resume(struct device *dev)
 		return 0;
 	}
 #endif
-
-	err = fts_i2c_read_reg(fts_i2c_client, 0xA6, &val);
+	err = fts_i2c_read_reg(data->client, 0xA6, &val);
 	FTS_DEBUG("read 0xA6: %02X, ret: %d", val, err);
 
 	data->suspended = false;

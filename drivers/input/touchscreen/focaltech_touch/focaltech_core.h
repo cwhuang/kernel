@@ -73,8 +73,6 @@
 *****************************************************************************/
 #define LEN_FLASH_ECC_MAX 0xFFFE
 
-#define FTS_WORKQUEUE_NAME "fts_wq"
-
 #define FTS_KEY_WIDTH 50
 #define FTS_ONE_TCH_LEN 6
 #define POINT_READ_BUF (3 + FTS_ONE_TCH_LEN * FTS_MAX_POINTS)
@@ -140,8 +138,6 @@ struct fts_ts_data {
 #if FTS_PSENSOR_EN
 	struct fts_psensor_platform_data *psensor_pdata;
 #endif
-	struct work_struct touch_event_work;
-	struct workqueue_struct *ts_workqueue;
 	struct regulator *vdd;
 	struct regulator *vcc_i2c;
 	u16 addr;
