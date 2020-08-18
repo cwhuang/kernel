@@ -45,6 +45,22 @@
 	};
 };
 
+&i2c2 {
+	/delete-node/ rt5640@1c;
+
+	rt5670: rt5670@1c {
+		#sound-dai-cells = <0>;
+		compatible = "realtek,rt5670";
+		reg = <0x1c>;
+		clocks = <&cru SCLK_I2S0_OUT>;
+		clock-names = "mclk";
+		interrupt-parent = <&gpio6>;
+		interrupts = <7 IRQ_TYPE_EDGE_FALLING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2s0_mclk>;
+	};
+};
+
 &i2c4 {
 	/delete-node/ gsl3673@40;
 
@@ -275,4 +291,16 @@
 			rockchip,pins = <0 RK_PC1 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+};
+
+&sound {
+	simple-audio-card,name = "realtek,rt5670-codec";
+
+	simple-audio-card,dai-link@0 {
+		codec {
+			sound-dai = <&rt5670>;
+		};
+	};
+
+	/delete-node/ simple-audio-card,dai-link@1;
 };

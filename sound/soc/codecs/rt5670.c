@@ -2702,6 +2702,8 @@ static int rt5670_probe(struct snd_soc_component *component)
 		return -ENODEV;
 	}
 	rt5670->component = component;
+	rt5670->dsp_sw = RT5670_DSP_NS;
+	rt5670_dsp_probe(component);
 
 	return 0;
 }

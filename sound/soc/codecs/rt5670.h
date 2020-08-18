@@ -164,6 +164,7 @@
 #define RT5670_JD_CTRL4				0xf9
 /* General Control */
 #define RT5670_DIG_MISC				0xfa
+#define RT5670_GEN_CTRL1			0xfa
 #define RT5670_GEN_CTRL2			0xfb
 #define RT5670_GEN_CTRL3			0xfc
 
