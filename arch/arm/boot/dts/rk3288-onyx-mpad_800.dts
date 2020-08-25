@@ -45,6 +45,23 @@
 	};
 };
 
+&i2c1 {
+	/delete-node/ ak8963-compass@0d;
+	/delete-node/ mpu-acc@68;
+	/delete-node/ mpu-gyro@68;
+
+	g-sensor@19 {
+		status = "okay";
+		compatible = "gs_lis3dh";
+		reg = <0x19>;
+		type = <SENSOR_TYPE_ACCEL>;
+		irq-gpio = <&gpio8 RK_PA0 IRQ_TYPE_LEVEL_LOW>;
+		irq_enable = <1>;
+		poll_delay_ms = <30>;
+		layout = <6>;
+	};
+};
+
 &i2c2 {
 	/delete-node/ rt5640@1c;
 
@@ -274,6 +291,9 @@
 };
 
 &pinctrl {
+	/delete-node/ ak8963;
+	/delete-node/ mpu6050;
+
 	fts {
 		fts_irq_gpio: fts-irq-gpio {
 			rockchip,pins = <2 RK_PA3 RK_FUNC_GPIO &pcfg_pull_none>;
