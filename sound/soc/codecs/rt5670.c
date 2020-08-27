@@ -74,6 +74,7 @@ static const struct reg_sequence init_list[] = {
 	{ RT5670_PR_BASE + 0x38, 0x1fe1 },
 	{ RT5670_PR_BASE + 0x3d, 0x3640 },
 	{ 0x8a, 0x0123 },
+	{ 0x84, 0x1111 },
 };
 
 static const struct reg_default rt5670_reg[] = {
@@ -2704,6 +2705,9 @@ static int rt5670_probe(struct snd_soc_component *component)
 	rt5670->component = component;
 	rt5670->dsp_sw = RT5670_DSP_NS;
 	rt5670_dsp_probe(component);
+
+	snd_soc_dapm_force_enable_pin(dapm, "I2S1 ASRC");
+	snd_soc_dapm_sync(dapm);
 
 	return 0;
 }
