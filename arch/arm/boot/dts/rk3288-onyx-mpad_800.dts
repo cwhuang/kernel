@@ -38,6 +38,13 @@
 			label = "led_y"; // IND_LEDY
 			gpios = <&gpio7 RK_PA3 GPIO_ACTIVE_HIGH>;
 		};
+
+		vibrator {
+			label = "vibrator"; // VIB_CTL
+			gpios = <&gpio7 RK_PC5 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "transient";
+			default-state = "off";
+		};
 	};
 
 	panel {
