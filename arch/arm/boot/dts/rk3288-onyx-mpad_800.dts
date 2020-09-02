@@ -91,6 +91,18 @@
 		layout = <6>;
 	};
 
+	light-sensor@48 {
+		status = "okay";
+		compatible = "light_cm3218";
+		pinctrl-names = "default";
+		pinctrl-0 = <&cm3218_irq_gpio>;
+		reg = <0x48>;
+		type = <SENSOR_TYPE_LIGHT>;
+		irq-gpio = <&gpio8 RK_PA3 IRQ_TYPE_LEVEL_HIGH>;
+		irq_enable = <1>;
+		poll_delay_ms = <30>;
+	};
+
 	battery: battery@55 {
 		status = "okay";
 		compatible = "ti,bq27542";
@@ -334,6 +346,12 @@
 	charger {
 		ac_present_ap: ac-present-ap {
 			rockchip,pins = <0 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	cm3218 {
+		cm3218_irq_gpio: cm3218-irq-gpio {
+			rockchip,pins = <8 RK_PA3 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 
