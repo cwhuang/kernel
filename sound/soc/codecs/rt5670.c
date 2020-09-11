@@ -75,6 +75,7 @@ static const struct reg_sequence init_list[] = {
 	{ RT5670_PR_BASE + 0x3d, 0x3640 },
 	{ 0x8a, 0x0123 },
 	{ 0x84, 0x1111 },
+	{ RT5670_GEN_CTRL3, 0x0084 },
 };
 
 static const struct reg_default rt5670_reg[] = {
@@ -1471,10 +1472,11 @@ static int rt5670_hp_event(struct snd_soc_dapm_widget *w,
 		regmap_write(rt5670->regmap, RT5670_DEPOP_M1, 0x831d);
 		regmap_update_bits(rt5670->regmap, RT5670_GEN_CTRL2,
 				0x0300, 0x0300);
+		regmap_write(rt5670->regmap, RT5670_DEPOP_M1, 0x8019);
+		msleep(10);
 		regmap_update_bits(rt5670->regmap, RT5670_HP_VOL,
 			RT5670_L_MUTE | RT5670_R_MUTE, 0);
-		msleep(80);
-		regmap_write(rt5670->regmap, RT5670_DEPOP_M1, 0x8019);
+		msleep(30);
 		break;
 
 	case SND_SOC_DAPM_PRE_PMD:
@@ -1512,6 +1514,10 @@ static int rt5670_bst1_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
+		snd_soc_component_write(component, RT5670_CJ_CTRL1, 0x0005);
+		snd_soc_component_write(component, RT5670_CJ_CTRL2, 0x1814);
+		msleep(50);
+		snd_soc_component_write(component, RT5670_CJ_CTRL2, 0x0814);
 		snd_soc_component_update_bits(component, RT5670_PWR_ANLG2,
 				    RT5670_PWR_BST1_P, RT5670_PWR_BST1_P);
 		break;
@@ -1591,6 +1597,9 @@ static const struct snd_soc_dapm_widget rt5670_dapm_widgets[] = {
 	/* micbias */
 	SND_SOC_DAPM_SUPPLY("MICBIAS1", RT5670_PWR_ANLG2,
 			     RT5670_PWR_MB1_BIT, 0, NULL, 0),
+	SND_SOC_DAPM_SUPPLY("MICBIAS2", RT5670_PWR_ANLG2,
+			     RT5670_PWR_MB2_BIT, 0, NULL, 0),
+
 
 	/* Input Lines */
 	SND_SOC_DAPM_INPUT("DMIC L1"),
@@ -1736,6 +1745,7 @@ static const struct snd_soc_dapm_widget rt5670_dapm_widgets[] = {
 	SND_SOC_DAPM_MUX("TDM Data Mux", SND_SOC_NOPM, 0, 0,
 			 &rt5670_txdp_slot_mux),
 
+	SND_SOC_DAPM_PGA("8CH TDM Data", SND_SOC_NOPM, 0, 0, NULL, 0),
 	SND_SOC_DAPM_MUX("DSP UL Mux", SND_SOC_NOPM, 0, 0,
 			 &rt5670_dsp_ul_mux),
 	SND_SOC_DAPM_MUX("DSP DL Mux", SND_SOC_NOPM, 0, 0,
@@ -2123,7 +2133,16 @@ static const struct snd_soc_dapm_route rt5670_dapm_routes[] = {
 	{ "TDM Data Mux", "Slot 4-5", "Stereo2 ADC MIX" },
 	{ "TDM Data Mux", "Slot 6-7", "IF2 DAC" },
 
-	{ "DSP UL Mux", "Bypass", "TDM Data Mux" },
+	{ "8CH TDM Data", NULL, "Stereo1 ADC MIXL" },
+	{ "8CH TDM Data", NULL, "Stereo1 ADC MIXR" },
+	{ "8CH TDM Data", NULL, "Mono ADC MIXL" },
+	{ "8CH TDM Data", NULL, "Mono ADC MIXR" },
+	{ "8CH TDM Data", NULL, "Stereo2 ADC MIXL" },
+	{ "8CH TDM Data", NULL, "Stereo2 ADC MIXR" },
+	{ "8CH TDM Data", NULL, "IF2 DAC L" },
+	{ "8CH TDM Data", NULL, "IF2 DAC R" },
+
+	{ "DSP UL Mux", "Bypass", "8CH TDM Data" },
 	{ "DSP UL Mux", NULL, "I2S DSP" },
 	{ "DSP DL Mux", "Bypass", "RxDP Mux" },
 	{ "DSP DL Mux", NULL, "I2S DSP" },
@@ -2632,7 +2651,7 @@ static int rt5670_set_bias_level(struct snd_soc_component *component,
 				RT5670_PWR_BG | RT5670_PWR_VREF2,
 				RT5670_PWR_VREF1 | RT5670_PWR_MB |
 				RT5670_PWR_BG | RT5670_PWR_VREF2);
-			mdelay(10);
+			mdelay(100);
 			snd_soc_component_update_bits(component, RT5670_PWR_ANLG1,
 				RT5670_PWR_FV1 | RT5670_PWR_FV2,
 				RT5670_PWR_FV1 | RT5670_PWR_FV2);
@@ -2707,6 +2726,7 @@ static int rt5670_probe(struct snd_soc_component *component)
 	rt5670_dsp_probe(component);
 
 	snd_soc_dapm_force_enable_pin(dapm, "I2S1 ASRC");
+	snd_soc_dapm_force_enable_pin(dapm, "ADC STO1 ASRC");
 	snd_soc_dapm_sync(dapm);
 
 	return 0;
@@ -3082,8 +3102,10 @@ static int rt5670_i2c_probe(struct i2c_client *i2c,
 				   RT5670_JD1_1_EN_MASK, RT5670_JD1_1_EN);
 		regmap_update_bits(rt5670->regmap, RT5670_JD_CTRL3,
 				   RT5670_JD_TRI_CBJ_SEL_MASK |
-				   RT5670_JD_TRI_HPO_SEL_MASK,
-				   RT5670_JD_CBJ_JD1_1 | RT5670_JD_HPO_JD1_1);
+				   RT5670_JD_TRI_HPO_SEL_MASK | RT5670_JD_CBJ_EN |
+				   RT5670_CMP_MIC_IN_DET_MASK,
+				   RT5670_JD_CBJ_JD1_1 | RT5670_JD_HPO_JD1_1 |
+				   RT5670_JD_CBJ_EN | RT5670_CMP_MIC_IN_DET_MASK);
 		switch (rt5670->pdata.jd_mode) {
 		case 1:
 			regmap_update_bits(rt5670->regmap, RT5670_A_JD_CTRL1,

@@ -376,6 +376,12 @@
 
 &sound {
 	simple-audio-card,name = "realtek,rt5670-codec";
+	simple-audio-card,routing =
+		"IN1P", "Microphone Jack",
+		"IN1N", "Microphone Jack",
+		"Microphone Jack", "MICBIAS2",
+		"Headphone Jack", "HPOL",
+		"Headphone Jack", "HPOR";
 
 	simple-audio-card,dai-link@0 {
 		codec {
