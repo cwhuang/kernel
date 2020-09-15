@@ -1078,10 +1078,6 @@ static int fts_ts_probe(struct i2c_client *client,
 	FTS_FUNC_EXIT();
 	return 0;
 
-exit_create_singlethread:
-	FTS_ERROR("==singlethread error =");
-	i2c_set_clientdata(client, NULL);
-
 free_gpio:
 	if (gpio_is_valid(pdata->reset_gpio))
 		gpio_free(pdata->reset_gpio);
