@@ -77,6 +77,9 @@ extern int rt5631_headset_mic_detect(bool headset_status);
 #if defined(CONFIG_SND_SOC_RT3261) || defined(CONFIG_SND_SOC_RT3224)
 extern int rt3261_headset_mic_detect(int jack_insert);
 #endif
+#if defined CONFIG_SND_SOC_RT5670
+extern int rt5670_headset_detect(bool jack_insert);
+#endif
 
 #if defined(CONFIG_SND_SOC_CX2072X)
 extern int cx2072x_jack_report(void);
@@ -181,6 +184,7 @@ static irqreturn_t headset_interrupt(int irq, void *dev_id)
 				 ? IRQF_TRIGGER_FALLING : IRQF_TRIGGER_RISING);
 	} else if (headset_info->headset_status == HEADSET_OUT) {
 		headset_info->cur_headset_status = HEADSET_OUT;
+		cancel_delayed_work(&headset_info->h_delayed_work);
 		cancel_delayed_work(&headset_info->hook_work);
 		if (headset_info->isMic) {
 			headset_info->hook_status = HOOK_UP;
@@ -193,6 +197,9 @@ static irqreturn_t headset_interrupt(int irq, void *dev_id)
 #endif
 #ifdef CONFIG_SND_SOC_RT5631_PHONE
 			rt5631_headset_mic_detect(false);
+#endif
+#ifdef CONFIG_SND_SOC_RT5670
+			rt5670_headset_detect(false);
 #endif
 
 			headset_info->isMic = 0;
@@ -257,6 +264,9 @@ static void hook_once_work(struct work_struct *work)
 
 #ifdef CONFIG_SND_SOC_RT5631_PHONE
 	rt5631_headset_mic_detect(true);
+#endif
+#ifdef CONFIG_SND_SOC_RT5670
+	rt5670_headset_detect(true);
 #endif
 	ret = iio_read_channel_raw(headset_info->chan, &val);
 	if (ret < 0)
