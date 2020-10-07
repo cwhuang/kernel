@@ -537,7 +537,7 @@ static int rt5670_irq_detection(void *data)
 	struct snd_soc_component *component = rt5670->component;
 	struct snd_soc_jack_gpio *gpio = &rt5670->hp_gpio;
 	struct snd_soc_jack *jack = rt5670->jack;
-	int val, btn_type, report = jack->status;
+	int val, btn_type, report = jack ? jack->status : 0;
 
 	if (rt5670->pdata.jd_mode == 1) /* 2 port */
 		val = snd_soc_component_read32(component, RT5670_A_JD_CTRL1) & 0x0070;
@@ -546,8 +546,8 @@ static int rt5670_irq_detection(void *data)
 
 	switch (val) {
 	/* jack in */
+	case 0x20: /* 1 port */
 	case 0x30: /* 2 port */
-	case 0x0: /* 1 port or 2 port */
 		if (rt5670->jack_type == 0) {
 			report = rt5670_headset_detect(true);
 			/* for push button and jack out */
@@ -583,7 +583,7 @@ static int rt5670_irq_detection(void *data)
 	/* jack out */
 	case 0x70: /* 2 port */
 	case 0x10: /* 2 port */
-	case 0x20: /* 1 port */
+	case 0x0: /* 1 port or 2 port */
 		report = 0;
 		snd_soc_component_update_bits(component, RT5670_INT_IRQ_ST, 0x1, 0x0);
 		rt5670_headset_detect(false);
@@ -2745,6 +2745,8 @@ static int rt5670_probe(struct snd_soc_component *component)
 	snd_soc_dapm_force_enable_pin(dapm, "I2S1 ASRC");
 	snd_soc_dapm_force_enable_pin(dapm, "ADC STO1 ASRC");
 	snd_soc_dapm_sync(dapm);
+
+	rt5670_irq_detection(rt5670);
 
 	return 0;
 }
