@@ -56,7 +56,7 @@
 
 #define HEADSET_IN 1
 #define HEADSET_OUT 0
-#define HOOK_DOWN 1
+#define HOOK_DOWN 2
 #define HOOK_UP 0
 #define enable 1
 #define disable 0
@@ -90,7 +90,7 @@ struct headset_priv {
 	struct input_dev *input_dev;
 	struct rk_headset_pdata *pdata;
 	unsigned int headset_status : 1;
-	unsigned int hook_status : 1;
+	unsigned int hook_status;
 	int isMic;
 	struct iio_channel *chan;
 	/* headset interrupt working will not check hook key  */
@@ -319,7 +319,7 @@ static void hook_work_callback(struct work_struct *work)
 	int ret, val;
 	struct headset_priv *headset = headset_info;
 	struct rk_headset_pdata *pdata = headset->pdata;
-	static unsigned int old_status = HOOK_UP;
+	static unsigned int hook_status;
 
 	ret = iio_read_channel_raw(headset->chan, &val);
 	if (ret < 0) {
@@ -338,14 +338,13 @@ static void hook_work_callback(struct work_struct *work)
 		DBG("Headset is out or waiting for headset is in or out, after same time check HOOK key\n");
 		goto out;
 	}
-	old_status = headset->hook_status;
 	if (val < HOOK_LEVEL_LOW && val >= 0)
-		headset->hook_status = HOOK_DOWN;
+		hook_status++;
 	else if (val > HOOK_LEVEL_HIGH && val < HOOK_DEFAULT_VAL)
-		headset->hook_status = HOOK_UP;
+		hook_status = HOOK_UP;
 	DBG("HOOK status is %s , adc value = %d hook_time = %d\n",
-	    headset->hook_status ? "down" : "up", val, headset->hook_time);
-	if (old_status == headset->hook_status) {
+	    hook_status ? "down" : "up", val, headset->hook_time);
+	if (hook_status == headset->hook_status) {
 		DBG("Hook adc read old_status == headset->hook_status=%d hook_time = %d\n",
 		    headset->hook_status, headset->hook_time);
 		goto status_error;
@@ -358,13 +357,14 @@ static void hook_work_callback(struct work_struct *work)
 		     gpio_get_value(pdata->headset_gpio) > 0)) {
 		pr_warn("headset is out, HOOK status must discard\n");
 		goto out;
-	} else {
+	} else if (hook_status == HOOK_DOWN ||
+		   (hook_status == HOOK_UP && headset->hook_status >= HOOK_DOWN)) {
 		input_report_key(headset->input_dev,
-				 HOOK_KEY_CODE, headset->hook_status);
+				 HOOK_KEY_CODE, !!hook_status);
 		input_sync(headset->input_dev);
-		pr_info("report hook key: %s\n",
-			headset->hook_status ? "down" : "up");
+		pr_info("report hook key: %s\n", hook_status ? "down" : "up");
 	}
+	headset->hook_status = hook_status;
 status_error:
 	schedule_delayed_work(&headset_info->hook_work, msecs_to_jiffies(100));
 out:;
