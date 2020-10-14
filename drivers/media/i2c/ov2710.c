@@ -1066,7 +1066,7 @@ err_free_handler:
 err_destroy_mutex:
 	mutex_destroy(&ov2710->mutex);
 
-	return ret;
+	return (ret == -EIO) ? -EPROBE_DEFER : ret;
 }
 
 static int ov2710_remove(struct i2c_client *client)
