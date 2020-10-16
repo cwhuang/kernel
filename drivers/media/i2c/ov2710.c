@@ -23,7 +23,7 @@
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-subdev.h>
 
-#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x0)
+#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x1)
 
 #ifndef V4L2_CID_DIGITAL_GAIN
 #define V4L2_CID_DIGITAL_GAIN		V4L2_CID_GAIN
@@ -111,7 +111,7 @@ struct regval {
 struct ov2710_mode {
 	u32 width;
 	u32 height;
-	u32 max_fps;
+	struct v4l2_fract max_fps;
 	u32 hts_def;
 	u32 vts_def;
 	u32 exp_def;
@@ -270,7 +270,10 @@ static const struct ov2710_mode supported_modes[] = {
 	{
 		.width = 1920,
 		.height = 1080,
-		.max_fps = MAX_FPS,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = MAX_FPS * 10000,
+		},
 		.exp_def = 0x18f,
 		.hts_def = HTS_DEF,
 		.vts_def = VTS_DEF,
@@ -471,6 +474,22 @@ static int ov2710_enum_frame_sizes(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int ov2710_enum_frame_interval(struct v4l2_subdev *sd,
+				      struct v4l2_subdev_pad_config *cfg,
+				      struct v4l2_subdev_frame_interval_enum *fie)
+{
+	u32 index = fie->index;
+
+	if (index >= ARRAY_SIZE(supported_modes))
+		return -EINVAL;
+
+	fie->width = supported_modes[index].width;
+	fie->height = supported_modes[index].height;
+	fie->interval = supported_modes[index].max_fps;
+
+	return 0;
+}
+
 static int ov2710_enable_test_pattern(struct ov2710 *ov2710, u32 pattern)
 {
 	int ret;
@@ -625,6 +644,18 @@ unlock_and_return:
 	return ret;
 }
 
+static int ov2710_g_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	struct ov2710 *ov2710 = to_ov2710(sd);
+
+	mutex_lock(&ov2710->mutex);
+	fi->interval = ov2710->cur_mode->max_fps;
+	mutex_unlock(&ov2710->mutex);
+
+	return 0;
+}
+
 static int __ov2710_power_on(struct ov2710 *ov2710)
 {
 	int ret;
@@ -740,11 +771,13 @@ static const struct v4l2_subdev_core_ops ov2710_core_ops = {
 
 static const struct v4l2_subdev_video_ops ov2710_video_ops = {
 	.s_stream = ov2710_s_stream,
+	.g_frame_interval = ov2710_g_frame_interval,
 };
 
 static const struct v4l2_subdev_pad_ops ov2710_pad_ops = {
 	.enum_mbus_code = ov2710_enum_mbus_code,
 	.enum_frame_size = ov2710_enum_frame_sizes,
+	.enum_frame_interval = ov2710_enum_frame_interval,
 	.get_fmt = ov2710_get_fmt,
 	.set_fmt = ov2710_set_fmt,
 };
