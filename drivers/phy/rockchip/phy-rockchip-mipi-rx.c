@@ -1601,7 +1601,7 @@ static int rockchip_mipidphy_media_init(struct mipidphy_priv *priv)
 	int ret;
 
 	priv->pads[MIPI_DPHY_RX_PAD_SOURCE].flags =
-		MEDIA_PAD_FL_SOURCE | MEDIA_PAD_FL_MUST_CONNECT;
+		MEDIA_PAD_FL_SOURCE;
 	priv->pads[MIPI_DPHY_RX_PAD_SINK].flags =
 		MEDIA_PAD_FL_SINK | MEDIA_PAD_FL_MUST_CONNECT;
 	priv->sd.entity.function = MEDIA_ENT_F_VID_IF_BRIDGE;
@@ -1699,7 +1699,8 @@ static int rockchip_mipidphy_probe(struct platform_device *pdev)
 	mutex_init(&priv->mutex);
 	v4l2_subdev_init(sd, &mipidphy_subdev_ops);
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
-	snprintf(sd->name, sizeof(sd->name), "rockchip-mipi-dphy-rx");
+	snprintf(sd->name, sizeof(sd->name), "rockchip-mipi-dphy-rx%d",
+		 !(priv->stream_on == mipidphy_rx_stream_on));
 	sd->dev = dev;
 
 	platform_set_drvdata(pdev, &sd->entity);

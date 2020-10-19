@@ -164,6 +164,7 @@
 #define RT5670_JD_CTRL4				0xf9
 /* General Control */
 #define RT5670_DIG_MISC				0xfa
+#define RT5670_GEN_CTRL1			0xfa
 #define RT5670_GEN_CTRL2			0xfb
 #define RT5670_GEN_CTRL3			0xfc
 
@@ -2016,4 +2017,5 @@ void rt5670_jack_suspend(struct snd_soc_component *component);
 void rt5670_jack_resume(struct snd_soc_component *component);
 int rt5670_set_jack_detect(struct snd_soc_component *component,
 	struct snd_soc_jack *jack);
+int rt5670_headset_detect(bool jack_insert);
 #endif /* __RT5670_H__ */

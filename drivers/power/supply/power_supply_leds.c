@@ -11,6 +11,8 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/power_supply.h>
 #include <linux/slab.h>
@@ -126,6 +128,16 @@ static void power_supply_update_gen_leds(struct power_supply *psy)
 		led_trigger_event(psy->online_trig, LED_OFF);
 }
 
+static int init_leds(void *data)
+{
+	struct power_supply *psy = data;
+
+	msleep(2000);
+	power_supply_update_leds(psy);
+
+	do_exit(0);
+}
+
 static int power_supply_create_gen_triggers(struct power_supply *psy)
 {
 	psy->online_trig_name = kasprintf(GFP_KERNEL, "%s-online",
@@ -156,6 +168,8 @@ void power_supply_update_leds(struct power_supply *psy)
 
 int power_supply_create_triggers(struct power_supply *psy)
 {
+	kthread_run(init_leds, psy, "init_leds");
+
 	if (psy->desc->type == POWER_SUPPLY_TYPE_BATTERY)
 		return power_supply_create_bat_triggers(psy);
 	return power_supply_create_gen_triggers(psy);
