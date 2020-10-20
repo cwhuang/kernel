@@ -27,6 +27,17 @@
 		pinctrl-0 = <&ac_present_ap>;
 	};
 
+	flash_led: flash-rgb13h {
+		compatible = "led,rgb13h";
+		label = "flash-led";
+		led-max-microamp = <294000>;
+		flash-max-microamp = <294000>;
+		flash-max-timeout-us = <1000000>;
+		enable-gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_HIGH>;
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+	};
+
 	leds {
 		compatible = "gpio-leds";
 		ind-ledr {
@@ -183,6 +194,7 @@
 		rockchip,camera-module-name = "CameraKing";
 		rockchip,camera-module-lens-name = "Largan-9569A2";
 		lens-focus = <&vm149c>;
+		flash-leds = <&flash_led>;
 		port {
 			ov8858_out: endpoint {
 				remote-endpoint = <&mipi_in_cam0>;
