@@ -574,9 +574,7 @@ static long ov2710_compat_ioctl32(struct v4l2_subdev *sd,
 static int __ov2710_start_stream(struct ov2710 *ov2710)
 {
 	int ret;
-	printk("[zwei] -- %s -- %d \n",__FUNCTION__,__LINE__);
 	ret = ov2710_write_array(ov2710->client, ov2710->cur_mode->reg_list);
-	printk("[zwei] -- %s -- %d -- ret = %d\n",__FUNCTION__,__LINE__,ret);
 	if (ret)
 		return ret;
 	//ret = ov2710_write_reg(ov2710->client, PAGE_SELECT_REG, PAGE_ONE);
@@ -586,13 +584,11 @@ static int __ov2710_start_stream(struct ov2710 *ov2710)
 	mutex_unlock(&ov2710->mutex);
 	ret = v4l2_ctrl_handler_setup(&ov2710->ctrl_handler);
 	mutex_lock(&ov2710->mutex);
-	printk("[zwei] -- %s -- %d \n",__FUNCTION__,__LINE__);
 	if (ret)
 		return ret;
 	ret = ov2710_write_reg(ov2710->client, 0x3008, 0x02);
 	ret |= ov2710_write_reg(ov2710->client, 0x4201, 0x00);
 	ret |= ov2710_write_reg(ov2710->client, 0x4202, 0x00);
-	printk("[zwei] -- %s -- %d \n",__FUNCTION__,__LINE__);
 	return ret;
 }
 
@@ -613,6 +609,7 @@ static int ov2710_s_stream(struct v4l2_subdev *sd, int on)
 	struct i2c_client *client = ov2710->client;
 	int ret = 0;
 
+	dev_info(sd->dev, "%s %s", __func__, on ? "on" : "off");
 	mutex_lock(&ov2710->mutex);
 	on = !!on;
 	if (on == ov2710->streaming)
@@ -627,7 +624,7 @@ static int ov2710_s_stream(struct v4l2_subdev *sd, int on)
 
 		ret = __ov2710_start_stream(ov2710);
 		if (ret) {
-			v4l2_err(sd, "start stream failed while write regs\n");
+			dev_err(sd->dev, "start stream failed while write regs: %d\n", ret);
 			pm_runtime_put(&client->dev);
 			goto unlock_and_return;
 		}
@@ -689,6 +686,7 @@ static int __ov2710_power_on(struct ov2710 *ov2710)
 	}
 
 	usleep_range(20000, 30000);
+	dev_info(&ov2710->client->dev, "%s OK\n", __func__);
 
 	return 0;
 
@@ -706,6 +704,7 @@ static void __ov2710_power_off(struct ov2710 *ov2710)
 	if (!IS_ERR(ov2710->reset_gpio))
 		gpiod_set_value_cansleep(ov2710->reset_gpio, 1);
 	regulator_bulk_disable(OV2710_NUM_SUPPLIES, ov2710->supplies);
+	dev_info(&ov2710->client->dev, "%s OK\n", __func__);
 }
 
 static int ov2710_runtime_resume(struct device *dev)
@@ -735,7 +734,6 @@ static int ov2710_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	struct v4l2_mbus_framefmt *try_fmt =
 				v4l2_subdev_get_try_format(sd, fh->pad, 0);
 	const struct ov2710_mode *def_mode = &supported_modes[0];
-	printk("[zwei] -- %s -- %d \n",__FUNCTION__,__LINE__);
 	mutex_lock(&ov2710->mutex);
 	/* Initialize try_fmt */
 	try_fmt->width = def_mode->width;
@@ -745,7 +743,6 @@ static int ov2710_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 	mutex_unlock(&ov2710->mutex);
 	/* No crop or compose */
-	printk("[zwei] -- %s -- %d \n",__FUNCTION__,__LINE__);
 	return 0;
 }
 #endif

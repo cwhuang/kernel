@@ -2094,6 +2094,7 @@ static int ov8858_s_stream(struct v4l2_subdev *sd, int on)
 	struct i2c_client *client = ov8858->client;
 	int ret = 0;
 
+	dev_info(sd->dev, "%s %s", __func__, on ? "on" : "off");
 	mutex_lock(&ov8858->mutex);
 	on = !!on;
 	if (on == ov8858->streaming)
@@ -2108,7 +2109,7 @@ static int ov8858_s_stream(struct v4l2_subdev *sd, int on)
 
 		ret = __ov8858_start_stream(ov8858);
 		if (ret) {
-			v4l2_err(sd, "start stream failed while write regs\n");
+			dev_err(sd->dev, "start stream failed while write regs: %d\n", ret);
 			pm_runtime_put(&client->dev);
 			goto unlock_and_return;
 		}
@@ -2180,6 +2181,7 @@ static int __ov8858_power_on(struct ov8858 *ov8858)
 	delay_us = ov8858_cal_delay(8192);
 	usleep_range(delay_us, delay_us * 2);
 
+	dev_info(dev, "%s OK\n", __func__);
 	return 0;
 
 disable_clk:
@@ -2209,6 +2211,7 @@ static void __ov8858_power_off(struct ov8858 *ov8858)
 		//gpiod_set_value_cansleep(ov8858->power_gpio, 0);
 
 	regulator_bulk_disable(OV8858_NUM_SUPPLIES, ov8858->supplies);
+	dev_info(dev, "%s OK\n", __func__);
 }
 
 static int ov8858_runtime_resume(struct device *dev)
