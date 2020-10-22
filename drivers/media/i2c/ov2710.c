@@ -700,9 +700,8 @@ disable_clk:
 
 static void __ov2710_power_off(struct ov2710 *ov2710)
 {
-	return;
 	if (!IS_ERR(ov2710->pwdn_gpio))
-		gpiod_set_value_cansleep(ov2710->pwdn_gpio, 0);
+		gpiod_set_value_cansleep(ov2710->pwdn_gpio, 1);
 	clk_disable_unprepare(ov2710->xvclk);
 	if (!IS_ERR(ov2710->reset_gpio))
 		gpiod_set_value_cansleep(ov2710->reset_gpio, 1);
