@@ -807,7 +807,12 @@ static int ov2710_set_ctrl(struct v4l2_ctrl *ctrl)
 					 ov2710->exposure->default_value);
 		break;
 	}
-	if (pm_runtime_get(&client->dev) <= 0)
+
+	/*
+	 * Applying V4L2 control value only happens
+	 * when power is up for streaming
+	 */
+	if (!pm_runtime_get_if_in_use(&client->dev))
 		return 0;
 
 	//ret = ov2710_write_reg(client, PAGE_SELECT_REG, PAGE_ONE);
