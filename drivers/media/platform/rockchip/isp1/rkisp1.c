@@ -1388,7 +1388,8 @@ static int rkisp1_isp_sd_set_selection(struct v4l2_subdev *sd,
 
 	return 0;
 err:
-	goto err;
+	v4l2_err(sd, "%s err! sel=%p\n", __func__, sel);
+	return -EINVAL;
 }
 
 static void rkisp1_isp_read_add_fifo_data(struct rkisp1_device *dev)
