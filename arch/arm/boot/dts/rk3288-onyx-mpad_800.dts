@@ -50,6 +50,7 @@
 		ind-ledy {
 			label = "led_y"; // IND_LEDY
 			gpios = <&gpio7 RK_PA3 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "mmc2";
 		};
 
 		vibrator {
