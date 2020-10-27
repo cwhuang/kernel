@@ -192,8 +192,8 @@
 //		reset-gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_HIGH>;
 		rockchip,camera-module-index = <0>;
 		rockchip,camera-module-facing = "back";
-		rockchip,camera-module-name = "CameraKing";
-		rockchip,camera-module-lens-name = "Largan-9569A2";
+		rockchip,camera-module-name = "COB910";
+		rockchip,camera-module-lens-name = "B800BA-E_V1.0";
 		lens-focus = <&vm149c>;
 		flash-leds = <&flash_led>;
 		port {
