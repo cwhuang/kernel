@@ -154,8 +154,7 @@ static int vm149c_get_pos(
 	if (ret != 0)
 		goto err;
 
-	abs_step = (((unsigned int)(msb & 0x3FU)) << 4U) |
-		   (((unsigned int)lsb) >> 4U);
+	abs_step = (((uint32_t)(msb & 0x03U)) << 8U) | ((uint32_t)lsb);
 	if (abs_step <= dev_vcm->start_current)
 		abs_step = VCMDRV_MAX_LOG;
 	else if ((abs_step > dev_vcm->start_current) &&
@@ -171,6 +170,23 @@ static int vm149c_get_pos(
 err:
 	dev_err(&client->dev,
 		"%s: failed with error %d\n", __func__, ret);
+	return ret;
+}
+
+static int init_vcm(struct i2c_client *client)
+{
+	int i, ret = 0;
+	u8 cmds[][2] = {
+		{ 0xcc, 0x3a },
+		{ 0xd4, 0x78 },
+		{ 0xdc, 0xc6 },
+		{ 0xe4, 0x90 },
+	};
+
+	for (i = 0; i < ARRAY_SIZE(cmds); ++i)
+		ret |= vm149c_write_msg(client, cmds[i][0], cmds[i][0]);
+
+	dev_info(&client->dev, "%s: %d\n", __func__, ret);
 	return ret;
 }
 
@@ -193,11 +209,18 @@ static int vm149c_set_pos(
 	if (position > VM149C_MAX_REG)
 		position = VM149C_MAX_REG;
 
+	if (dev_vcm->current_lens_pos > VM149C_MAX_REG) {
+		ret = init_vcm(client);
+		if (ret) {
+			dev_warn(&client->dev, "%s: failed with error %d\n", __func__, ret);
+			return ret;
+		}
+	}
+
 	dev_vcm->current_lens_pos = position;
 	dev_vcm->current_related_pos = dest_pos;
-	msb = (0x00U | ((dev_vcm->current_lens_pos & 0x3F0U) >> 4U));
-	lsb = (((dev_vcm->current_lens_pos & 0x0FU) << 4U) |
-		dev_vcm->step_mode);
+	msb = (0xC4U | ((position & 0x300U) >> 8U));
+	lsb = (position & 0xFFU);
 	ret = vm149c_write_msg(client, msb, lsb);
 	if (ret != 0)
 		goto err;
@@ -274,6 +297,7 @@ static const struct v4l2_ctrl_ops vm149c_vcm_ctrl_ops = {
 static int vm149c_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
 	int rval;
+	struct vm149c_device *dev_vcm = sd_to_vm149c_vcm(sd);
 
 	rval = pm_runtime_get_sync(sd->dev);
 	if (rval < 0) {
@@ -281,6 +305,8 @@ static int vm149c_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 		return rval;
 	}
 
+	/* Set the current pos to invalid */
+	dev_vcm->current_lens_pos = VM149C_MAX_REG + 1;
 	return 0;
 }
 

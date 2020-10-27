@@ -210,6 +210,9 @@
 		reg = <0x0c>;
 		rockchip,camera-module-index = <0>;
 		rockchip,camera-module-facing = "back";
+		rockchip,vcm-start-current = <15>;
+		rockchip,vcm-rated-current = <85>;
+		rockchip,vcm-step-mode = <144>;
 	};
 };
 
