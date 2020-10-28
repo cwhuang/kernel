@@ -45,11 +45,11 @@ if [ "${ARCH}" == "" ]; then
 	fi
 fi
 
-LOGO_PATH=${srctree}/logo.bmp
-[ -f ${LOGO_PATH} ] && LOGO=logo.bmp
+LOGO_PATH=${PRODUCT_LOGO_PATH:-${srctree}}/logo.bmp
+[ -f ${LOGO_PATH} ] && LOGO=${PRODUCT_LOGO_PATH:+$PRODUCT_LOGO_PATH/}logo.bmp
 
-LOGO_KERNEL_PATH=${srctree}/logo_kernel.bmp
-[ -f ${LOGO_KERNEL_PATH} ] && LOGO_KERNEL=logo_kernel.bmp
+LOGO_KERNEL_PATH=${PRODUCT_LOGO_PATH:-${srctree}}/logo_kernel.bmp
+[ -f ${LOGO_KERNEL_PATH} ] && LOGO_KERNEL=${PRODUCT_LOGO_PATH:+$PRODUCT_LOGO_PATH/}logo_kernel.bmp
 
 KERNEL_IMAGE_PATH=${objtree}/arch/${ARCH}/boot/Image
 KERNEL_IMAGE_ARG="--kernel ${KERNEL_IMAGE_PATH}"
@@ -221,7 +221,7 @@ if [ "${srctree}" != "${objtree}" ]; then
 		cp -a ${LOGO_KERNEL_PATH} ${objtree}/;
 	fi
 fi
-scripts/resource_tool ${DTB_PATH} ${LOGO} ${LOGO_KERNEL} >/dev/null
+scripts/resource_tool ${PRODUCT_LOGO_PATH:+--root=${PRODUCT_LOGO_PATH}} ${DTB_PATH} ${LOGO} ${LOGO_KERNEL} >/dev/null
 echo "  Image:  resource.img (with ${DTB} ${LOGO} ${LOGO_KERNEL}) is ready"
 
 if [ -f "${BOOT_IMG}" ]; then
