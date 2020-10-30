@@ -523,6 +523,15 @@ static void ov2710_get_module_inf(struct ov2710 *ov2710,
 	strlcpy(inf->base.lens, ov2710->len_name, sizeof(inf->base.lens));
 }
 
+static int ov2710_s_power(struct v4l2_subdev *sd, int on)
+{
+	int (*pm_op)(struct device *) = on ? pm_runtime_get : pm_runtime_put;
+
+	dev_info(sd->dev, "%s %s\n", __func__, on ? "on" : "off");
+
+	return pm_op(sd->dev);
+}
+
 static long ov2710_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct ov2710 *ov2710 = to_ov2710(sd);
@@ -759,6 +768,7 @@ static const struct v4l2_subdev_internal_ops ov2710_internal_ops = {
 #endif
 
 static const struct v4l2_subdev_core_ops ov2710_core_ops = {
+	.s_power = ov2710_s_power,
 	.ioctl = ov2710_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl32 = ov2710_compat_ioctl32,
