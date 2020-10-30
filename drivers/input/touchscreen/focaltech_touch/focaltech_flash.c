@@ -80,7 +80,9 @@ struct fts_Upgrade_Info fts_updateinfo[] = {
 };
 
 unsigned char CTPM_FW[] = {
+#ifdef FTS_UPGRADE_FW_APP
 #include FTS_UPGRADE_FW_APP
+#endif
 };
 
 unsigned char aucFW_PRAM_BOOT[] = {

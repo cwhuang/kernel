@@ -171,6 +171,7 @@
  * define your own fw_app, the sample one is invalid
  */
 #define FTS_UPGRADE_FW_APP "include/firmware/FT8716_app_sample.i"
+#undef FTS_UPGRADE_FW_APP
 
 /*
  * auto upgrade with app.bin in sdcard
