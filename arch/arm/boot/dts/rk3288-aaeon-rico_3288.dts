@@ -14,7 +14,7 @@
 	model = "AAEON rico_3288 board";
 	compatible = "rockchip,rk3288-evb-android-rk808-edp", "rockchip,rk3288";
 	chosen: chosen {
-		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M swiotlb=1 console=ttyFIQ0 androidboot.baseband=N/A androidboot.veritymode=enforcing androidboot.hardware=rk30board androidboot.console=ttyFIQ0 init=/init kpti=0";
+		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M swiotlb=1 console=ttyFIQ0 androidboot.baseband=N/A androidboot.veritymode=enforcing androidboot.hardware=rk30board androidboot.console=ttyFIQ0 init=/init kpti=0 snd_soc_rt5670.quirk=0x040C";
 	};
 
 	panel {
@@ -58,6 +58,32 @@
 		pinctrl-0 = <&usb2_pwr_en>;
 		regulator-name = "vusb2_5v";
 		regulator-always-on;
+	};
+
+	wireless-wlan {
+		wifi_chip_type = "ap6255";
+	};
+};
+
+&i2c1 {
+	/delete-node/ ak8963-compass@0d;
+	/delete-node/ mpu-acc@68;
+	/delete-node/ mpu-gyro@68;
+};
+
+&i2c2 {
+	/delete-node/ rt5640@1c;
+
+	rt5670: rt5670@1c {
+		#sound-dai-cells = <0>;
+		compatible = "realtek,rt5670";
+		reg = <0x1c>;
+		clocks = <&cru SCLK_I2S0_OUT>;
+		clock-names = "mclk";
+		interrupt-parent = <&gpio6>;
+		interrupts = <RK_PB3 IRQ_TYPE_EDGE_FALLING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2s0_mclk>;
 	};
 };
 
@@ -246,6 +272,13 @@
 		};
 	};
 
+	i2c3 {
+		i2c3-xfer {
+			rockchip,pins = <2 17 RK_FUNC_1 &pcfg_pull_up>,
+					<2 16 RK_FUNC_1 &pcfg_pull_up>;
+		};
+	};
+
 	lcd {
 		lcd_rst: lcd-rst {
 			rockchip,pins = <7 4 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -258,6 +291,22 @@
 		};
 		usb2_pwr_en: usb2-pwr-en {
 			rockchip,pins = <8 9 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&sound {
+	simple-audio-card,name = "realtek,rt5670-codec";
+	simple-audio-card,routing =
+		"IN1P", "Microphone Jack",
+		"IN1N", "Microphone Jack",
+		"Microphone Jack", "MICBIAS2",
+		"Headphone Jack", "HPOL",
+		"Headphone Jack", "HPOR";
+
+	simple-audio-card,dai-link@0 {
+		codec {
+			sound-dai = <&rt5670>;
 		};
 	};
 };
