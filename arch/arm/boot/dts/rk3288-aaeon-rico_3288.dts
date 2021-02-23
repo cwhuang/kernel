@@ -7,8 +7,12 @@
 /dts-v1/;
 #include "rk3288-evb-android-rk808-edp.dtsi"
 
-/delete-node/ &vcc_wl;
+/delete-node/ &edp;
+/delete-node/ &route_edp;
 /delete-node/ &vcc_lcd;
+/delete-node/ &vcc_wl;
+/delete-node/ &vopb_out_edp;
+/delete-node/ &vopl_out_edp;
 
 / {
 	model = "AAEON rico_3288 board";
@@ -17,14 +21,60 @@
 		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M swiotlb=1 console=ttyFIQ0 androidboot.baseband=N/A androidboot.veritymode=enforcing androidboot.hardware=rk30board androidboot.console=ttyFIQ0 init=/init kpti=0 snd_soc_rt5670.quirk=0x040C";
 	};
 
-	panel {
-		status = "disabled";
+	/delete-node/ panel;
+
+	lvds-panel {
+		status = "okay";
+		compatible ="simple-panel";
+		backlight = <&backlight>;
+		power-supply = <&vcc_lvds>;
+		reset-gpios = <&gpio7 RK_PA4 GPIO_ACTIVE_HIGH>;
+		enable-delay-ms = <20>;
+		prepare-delay-ms = <20>;
+		unprepare-delay-ms = <20>;
+		disable-delay-ms = <20>;
+		bus-format = <MEDIA_BUS_FMT_RGB666_1X7X3_SPWG>; // vesa-18
+
+		display-timings {
+			native-mode = <&timing0>;
+
+			timing0: timing0 {
+				clock-frequency = <68930000>;
+				hactive = <1280>;
+				vactive = <800>;
+				hback-porch = <100>;
+				hfront-porch = <18>;
+				vback-porch = <8>;
+				vfront-porch = <6>;
+				hsync-len = <10>;
+				vsync-len = <2>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				de-active = <0>;
+				pixelclk-active = <0>;
+			};
+		};
+
+		port {
+			panel_in_lvds: endpoint {
+				remote-endpoint = <&lvds_out_panel>;
+			};
+		};
 	};
 
 	vcc_lcd: vcc-lcd {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_lcd";
 		gpio = <&gpio0 RK_PC1 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <20000>;
+		enable-active-high;
+		regulator-boot-on;
+	};
+
+	vcc_lvds: vcc-lvds {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_lvds";
+		gpio = <&gpio7 RK_PA3 GPIO_ACTIVE_HIGH>;
 		startup-delay-us = <20000>;
 		enable-active-high;
 		regulator-boot-on;
@@ -58,6 +108,10 @@
 		pinctrl-0 = <&usb2_pwr_en>;
 		regulator-name = "vusb2_5v";
 		regulator-always-on;
+	};
+
+	wireless-bluetooth {
+		/delete-property/ BT,wake_host_irq;
 	};
 
 	wireless-wlan {
@@ -122,7 +176,7 @@
 };
 
 &dsi0 {
-	status = "okay";
+	status = "disabled";
 	panel@0 {
 		compatible = "simple-panel-dsi";
 		reg = <0>;
@@ -186,18 +240,38 @@
 };
 
 &route_dsi0 {
-	status = "okay";
-};
-
-&edp {
-	status = "disabled";
-};
-
-&route_edp {
 	status = "disabled";
 };
 
 &route_hdmi {
+	status = "okay";
+};
+
+&lvds {
+	status = "okay";
+
+	ports {
+		port@0 {
+			endpoint@0 {
+				status = "disabled";
+			};
+
+			endpoint@1 {
+				status = "okay";
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			lvds_out_panel: endpoint {
+				remote-endpoint = <&panel_in_lvds>;
+			};
+		};
+	};
+};
+
+&route_lvds {
 	status = "okay";
 };
 
