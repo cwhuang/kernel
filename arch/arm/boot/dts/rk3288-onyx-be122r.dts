@@ -1,0 +1,326 @@
+/*
+ * Copyright (c) 2021 Onyx Healthcare Inc.
+ *
+ * SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+ */
+
+/dts-v1/;
+#include "rk3288-evb-android-rk808-edp.dtsi"
+
+/delete-node/ &vcc_lcd;
+/delete-node/ &vcc_wl;
+
+/ {
+	model = "ONYX BE122R";
+	compatible = "rockchip,rk3288-evb-android-rk808-edp", "rockchip,rk3288";
+	chosen: chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M swiotlb=1 console=ttyFIQ0 androidboot.baseband=N/A androidboot.veritymode=enforcing androidboot.hardware=rk30board androidboot.console=ttyFIQ0 init=/init kpti=0 snd_soc_rt5670.quirk=0x040C";
+	};
+
+	ac_charger: ac-charger {
+		compatible = "gpio-charger";
+		charger-type = "mains";
+		gpios = <&gpio2 RK_PA5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ac_present_ap>;
+	};
+
+	gpio-keys {
+		pinctrl-0 = <&pwrbtn &en_keys>;
+
+		brightness-down-key {
+			gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
+			label = "Brightness_down";
+			linux,code = <KEY_BRIGHTNESSDOWN>;
+			debounce-interval = <100>;
+		};
+
+		brightness-up-key {
+			gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
+			label = "Brightness_up";
+			linux,code = <KEY_BRIGHTNESSUP>;
+			debounce-interval = <100>;
+		};
+
+		vol-down-key {
+			gpios = <&gpio2 RK_PA1 GPIO_ACTIVE_LOW>;
+			label = "Volume_down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			debounce-interval = <100>;
+		};
+
+		vol-up-key {
+			gpios = <&gpio2 RK_PA0 GPIO_ACTIVE_LOW>;
+			label = "Volume_up";
+			linux,code = <KEY_VOLUMEUP>;
+			debounce-interval = <100>;
+		};
+	};
+
+	panel {
+		enable-gpios = <&gpio7 RK_PA3 GPIO_ACTIVE_HIGH>;
+
+		display-timings {
+			native-mode = <&timing0>;
+
+			timing0: timing0 {
+				clock-frequency = <76420000>;
+				hactive = <1366>;
+				vactive = <768>;
+				hfront-porch = <50>;
+				hsync-len = <126>;
+				hback-porch = <50>;
+				vfront-porch = <15>;
+				vsync-len = <2>;
+				vback-porch = <15>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				de-active = <0>;
+				pixelclk-active = <0>;
+			};
+		};
+
+		port {
+			panel_in_edp: endpoint {
+				remote-endpoint = <&edp_out_panel>;
+			};
+		};
+	};
+
+	vcc50_hdmi: vcc50-hdmi {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc50_hdmi";
+		regulator-always-on;
+		enable-active-high;
+		gpio = <&gpio7 RK_PB4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hdmi_en>;
+	};
+
+	hub_3v3: hub-3v3 {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio2 RK_PB1 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&phy_pwr_en>;
+		regulator-name = "hub_3v3";
+		regulator-always-on;
+	};
+
+	hub1_rst: hub1-rst {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PB3 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hub1_rst_en>;
+		regulator-name = "hub1_rst";
+		regulator-always-on;
+	};
+
+	hub2_rst: hub2-rst {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hub2_rst_en>;
+		regulator-name = "hub2_rst";
+		regulator-always-on;
+	};
+
+	touch_en_hub1: touch-en-hub1 {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio0 RK_PB2 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_en>;
+		regulator-name = "touch_en_hub1";
+		regulator-always-on;
+	};
+
+	vusb2_5v: vusb2-5v {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio8 RK_PB1 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb2_pwr_en>;
+		regulator-name = "vusb2_5v";
+		regulator-always-on;
+	};
+
+	wireless-wlan {
+		wifi_chip_type = "ap6255";
+	};
+};
+
+&i2c0 {
+	nxp-rtc@51 {
+		reg = <0x51>;
+		compatible = "nxp,pcf85063";
+		irq_gpio = <&gpio7 RK_PB7 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+};
+
+&i2c1 {
+	/delete-node/ ak8963-compass@0d;
+	/delete-node/ mpu-acc@68;
+	/delete-node/ mpu-gyro@68;
+};
+
+&i2c2 {
+	/delete-node/ rt5640@1c;
+
+	rt5670: rt5670@1c {
+		#sound-dai-cells = <0>;
+		compatible = "realtek,rt5670";
+		reg = <0x1c>;
+		clocks = <&cru SCLK_I2S0_OUT>;
+		clock-names = "mclk";
+		interrupt-parent = <&gpio6>;
+		interrupts = <RK_PB3 IRQ_TYPE_EDGE_FALLING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2s0_mclk>;
+	};
+};
+
+&i2c4 {
+	/delete-node/ gsl3673@40;
+};
+
+&io_domains {
+	status = "okay";
+
+	audio-supply = <&vcc_18>;
+	dvp-supply = <&vcc_18>;
+	flash1-supply = <&vcc_lan>;
+	lcdc-supply = <&vcc_io>;
+	wifi-supply = <&vcc_18>;
+};
+
+&isp_mmu {
+	status = "okay";
+};
+
+&route_hdmi {
+	status = "okay";
+};
+
+&vcc_sys {
+	regulator-min-microvolt = <3710000>;
+	regulator-max-microvolt = <3710000>;
+};
+
+&vopb {
+	assigned-clocks = <&cru DCLK_VOP0>;
+	assigned-clock-parents = <&cru PLL_GPLL>;
+};
+
+&vopl {
+	assigned-clocks = <&cru DCLK_VOP1>;
+	assigned-clock-parents = <&cru PLL_CPLL>;
+};
+
+&rk808 {
+	vcc7-supply = <&vcc_sys>;
+	vcc9-supply = <&vcc_sys>;
+	vcc10-supply = <&vcc_sys>;
+	vcc11-supply = <&vcc_sys>;
+
+	regulators {
+		DCDC_REG1 {
+			regulator-min-microvolt = <700000>;
+			regulator-max-microvolt = <1500000>;
+		};
+
+		DCDC_REG2 {
+			regulator-min-microvolt = <700000>;
+			regulator-max-microvolt = <1500000>;
+		};
+
+		vcc_gps: LDO_REG4 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-name = "vcc_gps";
+			regulator-state-mem {
+				regulator-on-in-suspend;
+			};
+		};
+
+		LDO_REG5 {
+			regulator-min-microvolt = <3300000>;
+		};
+
+		vcc_lan: SWITCH_REG2 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-name = "vcc_lan";
+			regulator-state-mem {
+				regulator-off-in-suspend;
+			};
+		};
+	};
+};
+
+&pinctrl {
+	buttons {
+		en_keys: en-keys {
+			rockchip,pins = <7 RK_PB6 RK_FUNC_GPIO &pcfg_pull_up>,
+					<7 RK_PC5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	charger {
+		ac_present_ap: ac-present-ap {
+			rockchip,pins = <2 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	hdmi {
+		hdmi_en: hdmi-en {
+			rockchip,pins = <7 12 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	i2c3 {
+		i2c3-xfer {
+			rockchip,pins = <2 17 RK_FUNC_1 &pcfg_pull_up>,
+					<2 16 RK_FUNC_1 &pcfg_pull_up>;
+		};
+	};
+
+	usb {
+		hub1_rst_en: hub1-rst-en {
+			rockchip,pins = <0 11 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+		touch_en: touch-en {
+			rockchip,pins = <0 10 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+		hub2_rst_en: hub2-rst-en {
+			rockchip,pins = <2 8 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+		phy_pwr_en: phy-pwr-en {
+			rockchip,pins = <2 9 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+		usb2_pwr_en: usb2-pwr-en {
+			rockchip,pins = <8 9 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&sound {
+	simple-audio-card,name = "realtek,rt5670-codec";
+	simple-audio-card,routing =
+		"IN1P", "Microphone Jack",
+		"IN1N", "Microphone Jack",
+		"Microphone Jack", "MICBIAS2",
+		"Headphone Jack", "HPOL",
+		"Headphone Jack", "HPOR";
+
+	simple-audio-card,dai-link@0 {
+		codec {
+			sound-dai = <&rt5670>;
+		};
+	};
+};
