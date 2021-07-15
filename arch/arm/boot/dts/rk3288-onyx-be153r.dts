@@ -1,0 +1,35 @@
+/*
+ * Copyright (c) 2021 Onyx Healthcare Inc.
+ *
+ * SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+ */
+
+/dts-v1/;
+#include "rk3288-onyx-be122r.dts"
+
+/ {
+	model = "ONYX BE153R";
+
+	gpio-keys {
+		EN-backlight-key {
+			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_HIGH>;
+			gpio-key,wakeup = <1>;
+			label = "EN-backlight";
+			linux,code = <3>;
+			debounce-interval = <200>;
+		};
+
+		EN-touch-key {
+			gpios = <&gpio2 RK_PA7 GPIO_ACTIVE_HIGH>;
+			gpio-key,wakeup = <1>;
+			label = "EN-touch";
+			linux,code = <4>;
+			debounce-interval = <200>;
+		};
+	};
+};
+
+&timing0 {
+	hactive = <1920>;
+	vactive = <1080>;
+};
