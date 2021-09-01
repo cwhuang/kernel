@@ -1,0 +1,58 @@
+/*
+ * Copyright (c) 2021 AAEON Technology Inc.
+ *
+ * SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+ */
+
+/dts-v1/;
+#include "rk3288-aaeon-rico_3288.dts"
+
+/ {
+	compatible = "rockchip,rk3288-evb-rk808-linux", "rockchip,rk3288";
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M rw root=PARTUUID=614e0000-0000 rootfstype=ext4 rootwait snd_soc_rt5670.quirk=0x040C";
+	};
+
+	gpio-keys {
+		pinctrl-0 = <&pwrbtn &redbtn &greenbtn>;
+
+		/delete-node/ button@0;
+
+		red_button {
+			gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_LOW>;
+			linux,code = <115>;
+			label = "Red Button";
+			linux,input-type = <1>;
+			gpio-key,wakeup = <1>;
+			debounce-interval = <100>;
+			status = "disabled";
+		};
+
+		green_button {
+			gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
+			linux,code = <114>;
+			label = "Green Button";
+			linux,input-type = <1>;
+			gpio-key,wakeup = <1>;
+			debounce-interval = <100>;
+			status = "disabled";
+		};
+	};
+};
+
+&i2c4 {
+	/delete-node/ touch@38;
+};
+
+&pinctrl {
+	/delete-node/ fts;
+
+	buttons {
+		redbtn: redbtn {
+			rockchip,pins = <2 6 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+		greenbtn: greenbtn {
+			rockchip,pins = <2 2 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+};
