@@ -8,9 +8,26 @@
 #include "rk3288-evb-android-rk808-edp.dtsi"
 
 /delete-node/ &cif_isp0;
+/delete-node/ &edp;
+/delete-node/ &hdmi;
+/delete-node/ &hdmi_analog_sound;
 /delete-node/ &isp;
-/delete-node/ &vcc_wl;
+/delete-node/ &lvds;
+/delete-node/ &rgb;
+/delete-node/ &route_edp;
+/delete-node/ &route_hdmi;
+/delete-node/ &route_lvds;
+/delete-node/ &route_rgb;
 /delete-node/ &vcc_lcd;
+/delete-node/ &vcc_wl;
+/delete-node/ &vopb_out_edp;
+/delete-node/ &vopl_out_edp;
+/delete-node/ &vopb_out_hdmi;
+/delete-node/ &vopl_out_hdmi;
+/delete-node/ &vopb_out_lvds;
+/delete-node/ &vopl_out_lvds;
+/delete-node/ &vopb_out_rgb;
+/delete-node/ &vopl_out_rgb;
 
 / {
 	model = "ONYX MPAD-800";
@@ -61,9 +78,7 @@
 		};
 	};
 
-	panel {
-		status = "disabled";
-	};
+	/delete-node/ panel;
 
 	vcc_lcd: vcc-lcd {
 		compatible = "regulator-fixed";
@@ -102,6 +117,10 @@
 
 &gmac {
 	status = "disabled";
+};
+
+&i2c0 {
+	/delete-node/ CW2015@62;
 };
 
 &i2c1 {
@@ -404,22 +423,6 @@
 
 &route_dsi0 {
 	status = "okay";
-};
-
-&edp {
-	status = "disabled";
-};
-
-&route_edp {
-	status = "disabled";
-};
-
-&hdmi {
-	status = "disabled";
-};
-
-&route_hdmi {
-	status = "disabled";
 };
 
 &vopb {

@@ -8,6 +8,7 @@
 #include "rk3288-evb-android-rk808-edp.dtsi"
 
 /delete-node/ &edp;
+/delete-node/ &hdmi_analog_sound;
 /delete-node/ &route_edp;
 /delete-node/ &vcc_lcd;
 /delete-node/ &vcc_wl;
@@ -121,6 +122,10 @@
 
 &gmac {
 	snps,reset-gpio = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
+};
+
+&i2c0 {
+	/delete-node/ CW2015@62;
 };
 
 &i2c1 {
