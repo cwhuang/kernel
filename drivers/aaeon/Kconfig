@@ -1,0 +1,19 @@
+#
+# AAEON AI-Android Configuration
+#
+menuconfig AAEON
+	bool "AAEON AI-Android Support"
+	default y if (ARM || IA64 || X86)
+	select AAEON_CORE
+	---help---
+	  This is the AAEON EAPI driver for Android.
+
+if AAEON
+
+config AAEON_CORE
+	tristate "AAEON CORE Driver"
+	default y
+	---help---
+	  The core subsystem for AAEON EAPI modules.
+
+endif   # AAEON
