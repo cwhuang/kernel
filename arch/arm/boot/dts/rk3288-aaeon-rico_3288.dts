@@ -364,6 +364,13 @@
 		};
 	};
 
+	uart0 {
+		uart0-rts {
+			rockchip,pins = <4 RK_PC3 RK_FUNC_1 &pcfg_pull_none>,
+					<4 RK_PD7 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
 	usb {
 		phy_pwr_en: phy-pwr-en {
 			rockchip,pins = <2 9 RK_FUNC_GPIO &pcfg_pull_none>;
