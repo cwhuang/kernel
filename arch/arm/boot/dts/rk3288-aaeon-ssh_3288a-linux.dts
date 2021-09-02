@@ -1,0 +1,63 @@
+/*
+ * Copyright (c) 2021 AAEON Technology Inc.
+ *
+ * SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+ */
+
+/dts-v1/;
+#include "rk3288-aaeon-rico_3288-linux.dts"
+
+/ {
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M rw root=PARTUUID=614e0000-0000 rootfstype=ext4 rootwait board_vendor=AAEON board_name=ssh_3288a product_name=ssh_3288a snd_soc_rt5670.quirk=0x040C";
+	};
+
+	vcc_23: v23-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_23";
+		regulator-min-microvolt = <2300000>;
+		regulator-max-microvolt = <2300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	wireless-wlan {
+		wifi_chip_type = "ap6354";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wl_int>;
+	};
+};
+
+&io_domains {
+       dvp-supply = <&vcc18_lcd>;
+};
+
+&rk808 {
+	vcc7-supply = <&vcc_23>;
+	vcc9-supply = <&vcc_io>;
+	vcc10-supply = <&vcc_23>;
+	vcc11-supply = <&vcc_23>;
+};
+
+&route_lvds {
+	status = "disabled";
+};
+
+&pinctrl {
+	wireless-wlan {
+		wl_int: wl-int {
+			rockchip,pins = <4 RK_PD6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&sdio0 {
+	pinctrl-0 = <&sdio0_bus4 &sdio0_cmd &sdio0_clk>;
+};
+
+&vcc_sys {
+	regulator-min-microvolt = <5000000>;
+	regulator-max-microvolt = <5000000>;
+	regulator-always-on;
+	regulator-boot-on;
+};
