@@ -12856,7 +12856,6 @@ int rtw_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	struct iwreq *wrq = (struct iwreq *)rq;
 	int ret = 0;
 
-	pr_info("%s %d\n", __func__, __LINE__);
 	switch (cmd) {
 	case RTL_IOCTL_WPA_SUPPLICANT:
 		ret = wpa_supplicant_ioctl(dev, &wrq->u.data);
@@ -12872,7 +12871,6 @@ int rtw_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 #endif
 #endif /* CONFIG_AP_MODE */
 	case SIOCDEVPRIVATE:
-		pr_info("%s %d\n", __func__, __LINE__);
 		ret = rtw_ioctl_wext_private(dev, rq);
 		break;
 	case (SIOCDEVPRIVATE+1):

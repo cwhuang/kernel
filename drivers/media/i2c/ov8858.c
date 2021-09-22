@@ -1795,15 +1795,6 @@ static void ov8858_set_lsc_cfg(struct ov8858 *ov8858,
 	mutex_unlock(&ov8858->mutex);
 }
 
-static int ov8858_s_power(struct v4l2_subdev *sd, int on)
-{
-	int (*pm_op)(struct device *) = on ? pm_runtime_get : pm_runtime_put;
-
-	dev_info(sd->dev, "%s %s\n", __func__, on ? "on" : "off");
-
-	return pm_op(sd->dev);
-}
-
 static long ov8858_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct ov8858 *ov8858 = to_ov8858(sd);
@@ -2295,7 +2286,6 @@ static const struct v4l2_subdev_internal_ops ov8858_internal_ops = {
 #endif
 
 static const struct v4l2_subdev_core_ops ov8858_core_ops = {
-	.s_power = ov8858_s_power,
 	.ioctl = ov8858_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl32 = ov8858_compat_ioctl32,
