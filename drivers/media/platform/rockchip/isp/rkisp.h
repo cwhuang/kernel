@@ -35,9 +35,10 @@
 #ifndef _RKISP_H
 #define _RKISP_H
 
+#include <linux/interrupt.h>
 #include <linux/kfifo.h>
 #include <linux/platform_device.h>
-#include <linux/interrupt.h>
+#include <linux/rk-camera-module.h>
 #include <media/v4l2-fwnode.h>
 #include "common.h"
 
@@ -66,6 +67,7 @@ struct rkisp_stream;
  */
 struct ispsd_in_fmt {
 	u32 mbus_code;
+	u8 name[16];
 	u8 fmt_type;
 	u32 mipi_dt;
 	u32 yuv_seq;
@@ -140,10 +142,6 @@ void rkisp_mipi_isr(unsigned int mipi_mis, struct rkisp_device *dev);
 void rkisp_mipi_v13_isr(unsigned int err1, unsigned int err2,
 			       unsigned int err3, struct rkisp_device *dev);
 
-void rkisp_mipi_v20_isr(unsigned int phy, unsigned int packet,
-			 unsigned int overflow, unsigned int state,
-			 struct rkisp_device *dev);
-
 void rkisp_isp_isr(unsigned int isp_mis, unsigned int isp3a_mis,
 		   struct rkisp_device *dev);
 
@@ -159,6 +157,8 @@ int rkisp_update_sensor_info(struct rkisp_device *dev);
 u32 rkisp_mbus_pixelcode_to_v4l2(u32 pixelcode);
 
 void rkisp_isp_queue_event_sof(struct rkisp_isp_subdev *isp);
+
+void rkisp_check_idle(struct rkisp_device *dev, u32 irq);
 
 static inline
 struct ispsd_out_fmt *rkisp_get_ispsd_out_fmt(struct rkisp_isp_subdev *isp_sdev)

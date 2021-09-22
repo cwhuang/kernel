@@ -6,6 +6,7 @@
 #include <linux/clk.h>
 #include <linux/cpufreq.h>
 #include <linux/devfreq.h>
+#include <linux/module.h>
 #include <linux/nvmem-consumer.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
@@ -24,6 +25,10 @@
 #define LEAKAGE_INVALID		0xff
 #define AVS_DELETE_OPP		0
 #define AVS_SCALING_RATE	1
+
+#define LEAKAGE_V1		1
+#define LEAKAGE_V2		2
+#define LEAKAGE_V3		3
 
 #define to_thermal_opp_info(nb) container_of(nb, struct thermal_opp_info, \
 					     thermal_nb)
@@ -65,6 +70,7 @@ struct lkg_conversion_table {
 #define frac_to_int(x) ((x) >> FRAC_BITS)
 
 static int pvtm_value[PVTM_CH_MAX][PVTM_SUB_CH_MAX];
+static int lkg_version;
 
 /*
  * temp = temp * 10
@@ -387,6 +393,10 @@ static int rockchip_get_pvtm_specific_value(struct device *dev,
 		if (max_value - min_value < pvtm->err)
 			break;
 	}
+	if (!total_value || !pvtm->num) {
+		ret = -EINVAL;
+		goto resetore_volt;
+	}
 	avg_value = total_value / pvtm->num;
 
 	/*
@@ -508,17 +518,27 @@ next:
 	return 0;
 }
 
-int rockchip_of_get_leakage(struct device *dev, char *lkg_name, int *leakage)
+static int rockchip_get_leakage_version(int *version)
 {
-	struct device_node *np;
+	if (*version)
+		return 0;
+
+	if (of_machine_is_compatible("rockchip,rk3368"))
+		*version = LEAKAGE_V2;
+	else if (of_machine_is_compatible("rockchip,rv1126") ||
+		 of_machine_is_compatible("rockchip,rv1109"))
+		*version = LEAKAGE_V3;
+	else
+		*version = LEAKAGE_V1;
+
+	return 0;
+}
+
+static int rockchip_get_leakage_v1(struct device *dev, struct device_node *np,
+				   char *lkg_name, int *leakage)
+{
 	struct nvmem_cell *cell;
 	int ret = 0;
-
-	np = of_parse_phandle(dev->of_node, "operating-points-v2", 0);
-	if (!np) {
-		dev_warn(dev, "OPP-v2 not supported\n");
-		return -ENOENT;
-	}
 
 	cell = of_nvmem_cell_get(np, "leakage");
 	if (IS_ERR(cell)) {
@@ -527,17 +547,79 @@ int rockchip_of_get_leakage(struct device *dev, char *lkg_name, int *leakage)
 		nvmem_cell_put(cell);
 		ret = rockchip_get_efuse_value(np, "leakage", leakage);
 	}
-	if (ret) {
+	if (ret)
 		dev_err(dev, "Failed to get %s\n", lkg_name);
-		ret = -EINVAL;
-		goto out;
+
+	return ret;
+}
+
+static int rockchip_get_leakage_v2(struct device *dev, struct device_node *np,
+				   char *lkg_name, int *leakage)
+{
+	int lkg = 0, ret = 0;
+
+	if (rockchip_get_leakage_v1(dev, np, lkg_name, &lkg))
+		return -EINVAL;
+
+	ret = rockchip_adjust_leakage(dev, np, &lkg);
+	if (ret)
+		dev_err(dev, "Failed to adjust leakage, value=%d\n", lkg);
+	else
+		*leakage = lkg;
+
+	return ret;
+}
+
+static int rockchip_get_leakage_v3(struct device *dev, struct device_node *np,
+				   char *lkg_name, int *leakage)
+{
+	int lkg = 0;
+
+	if (rockchip_get_leakage_v1(dev, np, lkg_name, &lkg))
+		return -EINVAL;
+
+	*leakage = (((lkg & 0xf8) >> 3) * 1000) + ((lkg & 0x7) * 125);
+
+	return 0;
+}
+
+int rockchip_of_get_leakage(struct device *dev, char *lkg_name, int *leakage)
+{
+	struct device_node *np;
+	int ret = -EINVAL;
+
+	np = of_parse_phandle(dev->of_node, "operating-points-v2", 0);
+	if (!np) {
+		dev_warn(dev, "OPP-v2 not supported\n");
+		return -ENOENT;
 	}
 
-	ret = rockchip_adjust_leakage(dev, np, leakage);
-	if (ret)
-		dev_err(dev, "Failed to adjust leakage\n");
+	rockchip_get_leakage_version(&lkg_version);
 
-out:
+	switch (lkg_version) {
+	case LEAKAGE_V1:
+		ret = rockchip_get_leakage_v1(dev, np, lkg_name, leakage);
+		break;
+	case LEAKAGE_V2:
+		ret = rockchip_get_leakage_v2(dev, np, lkg_name, leakage);
+		break;
+	case LEAKAGE_V3:
+		ret = rockchip_get_leakage_v3(dev, np, lkg_name, leakage);
+		if (!ret) {
+			/*
+			 * round up to the nearest whole number for calculating
+			 * static power,  it does not need to be precise.
+			 */
+			if (*leakage % 1000 > 500)
+				*leakage = *leakage / 1000 + 1;
+			else
+				*leakage = *leakage / 1000;
+		}
+		break;
+	default:
+		break;
+	}
+
 	of_node_put(np);
 
 	return ret;
@@ -549,29 +631,34 @@ void rockchip_of_get_lkg_sel(struct device *dev, struct device_node *np,
 			     int *volt_sel, int *scale_sel)
 {
 	struct property *prop = NULL;
-	struct nvmem_cell *cell;
-	int leakage = -EINVAL, ret;
+	int leakage = -EINVAL, ret = 0;
 	char name[NAME_MAX];
 
-	cell = of_nvmem_cell_get(np, "leakage");
-	if (IS_ERR(cell)) {
-		ret = rockchip_get_efuse_value(np, lkg_name, &leakage);
-	} else {
-		nvmem_cell_put(cell);
-		ret = rockchip_get_efuse_value(np, "leakage", &leakage);
-	}
-	if (ret) {
-		dev_err(dev, "Failed to get leakage\n");
+	rockchip_get_leakage_version(&lkg_version);
+
+	switch (lkg_version) {
+	case LEAKAGE_V1:
+		ret = rockchip_get_leakage_v1(dev, np, lkg_name, &leakage);
+		if (ret)
+			return;
+		dev_info(dev, "leakage=%d\n", leakage);
+		break;
+	case LEAKAGE_V2:
+		ret = rockchip_get_leakage_v2(dev, np, lkg_name, &leakage);
+		if (ret)
+			return;
+		dev_info(dev, "leakage=%d\n", leakage);
+		break;
+	case LEAKAGE_V3:
+		ret = rockchip_get_leakage_v3(dev, np, lkg_name, &leakage);
+		if (ret)
+			return;
+		dev_info(dev, "leakage=%d.%d\n", leakage / 1000,
+			 leakage % 1000);
+		break;
+	default:
 		return;
 	}
-
-	ret = rockchip_adjust_leakage(dev, np, &leakage);
-	if (ret) {
-		dev_err(dev, "Failed to adjust leakage\n");
-		return;
-	}
-
-	dev_info(dev, "leakage=%d\n", leakage);
 
 	if (!volt_sel)
 		goto next;
@@ -679,6 +766,21 @@ void rockchip_of_get_bin_sel(struct device *dev, struct device_node *np,
 }
 EXPORT_SYMBOL(rockchip_of_get_bin_sel);
 
+void rockchip_of_get_bin_volt_sel(struct device *dev, struct device_node *np,
+				  int bin, int *bin_volt_sel)
+{
+	int ret = 0;
+
+	if (!bin_volt_sel || bin < 0)
+		return;
+
+	ret = rockchip_get_bin_sel(np, "rockchip,bin-voltage-sel",
+				   bin, bin_volt_sel);
+	if (!ret)
+		dev_info(dev, "bin-volt-sel=%d\n", *bin_volt_sel);
+}
+EXPORT_SYMBOL(rockchip_of_get_bin_volt_sel);
+
 void rockchip_get_soc_info(struct device *dev,
 			   const struct of_device_id *matches,
 			   int *bin, int *process)
@@ -720,6 +822,7 @@ void rockchip_get_scale_volt_sel(struct device *dev, char *lkg_name,
 	struct device_node *np;
 	int lkg_scale = 0, pvtm_scale = 0, bin_scale = 0;
 	int lkg_volt_sel = -EINVAL, pvtm_volt_sel = -EINVAL;
+	int bin_volt_sel = -EINVAL;
 
 	np = of_parse_phandle(dev->of_node, "operating-points-v2", 0);
 	if (!np) {
@@ -732,10 +835,15 @@ void rockchip_get_scale_volt_sel(struct device *dev, char *lkg_name,
 	rockchip_of_get_pvtm_sel(dev, np, reg_name, process,
 				 &pvtm_volt_sel, &pvtm_scale);
 	rockchip_of_get_bin_sel(dev, np, bin, &bin_scale);
+	rockchip_of_get_bin_volt_sel(dev, np, bin, &bin_volt_sel);
 	if (scale)
 		*scale = max3(lkg_scale, pvtm_scale, bin_scale);
-	if (volt_sel)
-		*volt_sel = max(lkg_volt_sel, pvtm_volt_sel);
+	if (volt_sel) {
+		if (bin_volt_sel >= 0)
+			*volt_sel = bin_volt_sel;
+		else
+			*volt_sel = max(lkg_volt_sel, pvtm_volt_sel);
+	}
 
 	of_node_put(np);
 }
@@ -790,7 +898,7 @@ static int rockchip_adjust_opp_by_irdrop(struct device *dev,
 		if (!irdrop_table) {
 			delta_irdrop = 0;
 		} else {
-			opp_rate = opp->rate / 1000;
+			opp_rate = opp->rate / 1000000;
 			board_irdrop = -EINVAL;
 			for (i = 0; irdrop_table[i].sel != SEL_TABLE_END; i++) {
 				if (opp_rate >= irdrop_table[i].min)
@@ -977,3 +1085,7 @@ int rockchip_init_opp_table(struct device *dev,
 	return 0;
 }
 EXPORT_SYMBOL(rockchip_init_opp_table);
+
+MODULE_DESCRIPTION("ROCKCHIP OPP Select");
+MODULE_AUTHOR("Finley Xiao <finley.xiao@rock-chips.com>, Liang Chen <cl@rock-chips.com>");
+MODULE_LICENSE("GPL");

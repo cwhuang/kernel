@@ -10,9 +10,12 @@
 #include <linux/types.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
+#include <linux/rcupdate.h>
 #include <linux/completion.h>
 #include <linux/wait.h>
+#include <linux/zstd.h>
 #include <crypto/hash.h>
+#include <linux/rwsem.h>
 
 #include <uapi/linux/incrementalfs.h>
 
@@ -20,38 +23,79 @@
 
 #define SEGMENTS_PER_FILE 3
 
-struct read_log_record {
-	u32 block_index : 31;
+enum LOG_RECORD_TYPE {
+	FULL,
+	SAME_FILE,
+	SAME_FILE_NEXT_BLOCK,
+	SAME_FILE_NEXT_BLOCK_SHORT,
+};
 
-	u32 timed_out : 1;
-
-	u64 timestamp_us;
-
+struct full_record {
+	enum LOG_RECORD_TYPE type : 2; /* FULL */
+	u32 block_index : 30;
 	incfs_uuid_t file_id;
-} __packed;
+	u64 absolute_ts_us;
+	uid_t uid;
+} __packed; /* 28 bytes */
+
+struct same_file_record {
+	enum LOG_RECORD_TYPE type : 2; /* SAME_FILE */
+	u32 block_index : 30;
+	u32 relative_ts_us; /* max 2^32 us ~= 1 hour (1:11:30) */
+} __packed; /* 8 bytes */
+
+struct same_file_next_block {
+	enum LOG_RECORD_TYPE type : 2; /* SAME_FILE_NEXT_BLOCK */
+	u32 relative_ts_us : 30; /* max 2^30 us ~= 15 min (17:50) */
+} __packed; /* 4 bytes */
+
+struct same_file_next_block_short {
+	enum LOG_RECORD_TYPE type : 2; /* SAME_FILE_NEXT_BLOCK_SHORT */
+	u16 relative_ts_us : 14; /* max 2^14 us ~= 16 ms */
+} __packed; /* 2 bytes */
+
+union log_record {
+	struct full_record full_record;
+	struct same_file_record same_file_record;
+	struct same_file_next_block same_file_next_block;
+	struct same_file_next_block_short same_file_next_block_short;
+};
 
 struct read_log_state {
-	/* Next slot in rl_ring_buf to write to. */
-	u32 next_index;
+	/* Log buffer generation id, incremented on configuration changes */
+	u32 generation_id;
 
-	/* Current number of writer pass over rl_ring_buf */
+	/* Offset in rl_ring_buf to write into. */
+	u32 next_offset;
+
+	/* Current number of writer passes over rl_ring_buf */
 	u32 current_pass_no;
+
+	/* Current full_record to diff against */
+	struct full_record base_record;
+
+	/* Current record number counting from configuration change */
+	u64 current_record_no;
 };
 
 /* A ring buffer to save records about data blocks which were recently read. */
 struct read_log {
-	struct read_log_record *rl_ring_buf;
-
-	struct read_log_state rl_state;
-
-	spinlock_t rl_writer_lock;
+	void *rl_ring_buf;
 
 	int rl_size;
 
-	/*
-	 * A queue of waiters who want to be notified about reads.
-	 */
+	struct read_log_state rl_head;
+
+	struct read_log_state rl_tail;
+
+	/* A lock to protect the above fields */
+	spinlock_t rl_lock;
+
+	/* A queue of waiters who want to be notified about reads */
 	wait_queue_head_t ml_notif_wq;
+
+	/* A work item to wake up those waiters without slowing down readers */
+	struct delayed_work ml_wakeup_work;
 };
 
 struct mount_options {
@@ -59,8 +103,7 @@ struct mount_options {
 	unsigned int readahead_pages;
 	unsigned int read_log_pages;
 	unsigned int read_log_wakeup_count;
-	bool no_backing_file_cache;
-	bool no_backing_file_readahead;
+	bool report_uid;
 };
 
 struct mount_info {
@@ -69,6 +112,8 @@ struct mount_info {
 	struct path mi_backing_dir_path;
 
 	struct dentry *mi_index_dir;
+
+	struct dentry *mi_incomplete_dir;
 
 	const struct cred *mi_owner;
 
@@ -83,13 +128,13 @@ struct mount_info {
 	wait_queue_head_t mi_pending_reads_notif_wq;
 
 	/*
-	 * Protects:
+	 * Protects - RCU safe:
 	 *  - reads_list_head
 	 *  - mi_pending_reads_count
 	 *  - mi_last_pending_read_number
 	 *  - data_file_segment.reads_list_head
 	 */
-	struct mutex mi_pending_reads_mutex;
+	spinlock_t pending_read_lock;
 
 	/* List of active pending_read objects */
 	struct list_head mi_reads_list_head;
@@ -111,6 +156,23 @@ struct mount_info {
 
 	void *pending_read_xattr;
 	size_t pending_read_xattr_size;
+
+	/* A queue of waiters who want to be notified about blocks_written */
+	wait_queue_head_t mi_blocks_written_notif_wq;
+
+	/* Number of blocks written since mount */
+	atomic_t mi_blocks_written;
+
+	/* Per UID read timeouts */
+	spinlock_t mi_per_uid_read_timeouts_lock;
+	struct incfs_per_uid_read_timeouts *mi_per_uid_read_timeouts;
+	int mi_per_uid_read_timeouts_size;
+
+	/* zstd workspace */
+	struct mutex mi_zstd_workspace_mutex;
+	void *mi_zstd_workspace;
+	ZSTD_DStream *mi_zstd_stream;
+	struct delayed_work mi_zstd_cleanup_work;
 };
 
 struct data_file_block {
@@ -132,17 +194,20 @@ struct pending_read {
 
 	int serial_number;
 
+	uid_t uid;
+
 	struct list_head mi_reads_list;
 
 	struct list_head segment_reads_list;
+
+	struct rcu_head rcu;
 };
 
 struct data_file_segment {
 	wait_queue_head_t new_data_arrival_wq;
 
 	/* Protects reads and writes from the blockmap */
-	/* Good candidate for read/write mutex */
-	struct mutex blockmap_mutex;
+	struct rw_semaphore rwsem;
 
 	/* List of active pending_read objects belonging to this segment */
 	/* Protected by mount_info.pending_reads_mutex */
@@ -183,9 +248,32 @@ struct data_file {
 	/* File size in bytes */
 	loff_t df_size;
 
-	int df_block_count; /* File size in DATA_FILE_BLOCK_SIZE blocks */
+	/* File header flags */
+	u32 df_header_flags;
 
-	struct file_attr n_attr;
+	/* File size in DATA_FILE_BLOCK_SIZE blocks */
+	int df_data_block_count;
+
+	/* Total number of blocks, data + hash */
+	int df_total_block_count;
+
+	/* For mapped files, the offset into the actual file */
+	loff_t df_mapped_offset;
+
+	/* Number of data blocks written to file */
+	atomic_t df_data_blocks_written;
+
+	/* Number of data blocks in the status block */
+	u32 df_initial_data_blocks_written;
+
+	/* Number of hash blocks written to file */
+	atomic_t df_hash_blocks_written;
+
+	/* Number of hash blocks in the status block */
+	u32 df_initial_hash_blocks_written;
+
+	/* Offset to status metadata header */
+	loff_t df_status_offset;
 
 	struct mtree *df_hash_tree;
 
@@ -212,23 +300,48 @@ struct dentry_info {
 	struct path backing_path;
 };
 
+enum FILL_PERMISSION {
+	CANT_FILL = 0,
+	CAN_FILL = 1,
+};
+
+struct incfs_file_data {
+	/* Does this file handle have INCFS_IOC_FILL_BLOCKS permission */
+	enum FILL_PERMISSION fd_fill_permission;
+
+	/* If INCFS_IOC_GET_FILLED_BLOCKS has been called, where are we */
+	int fd_get_block_pos;
+
+	/* And how many filled blocks are there up to that point */
+	int fd_filled_data_blocks;
+	int fd_filled_hash_blocks;
+};
+
 struct mount_info *incfs_alloc_mount_info(struct super_block *sb,
 					  struct mount_options *options,
 					  struct path *backing_dir_path);
 
+int incfs_realloc_mount_info(struct mount_info *mi,
+			     struct mount_options *options);
+
 void incfs_free_mount_info(struct mount_info *mi);
 
+char *file_id_to_str(incfs_uuid_t id);
+struct dentry *incfs_lookup_dentry(struct dentry *parent, const char *name);
 struct data_file *incfs_open_data_file(struct mount_info *mi, struct file *bf);
 void incfs_free_data_file(struct data_file *df);
-
-int incfs_scan_metadata_chain(struct data_file *df);
 
 struct dir_file *incfs_open_dir_file(struct mount_info *mi, struct file *bf);
 void incfs_free_dir_file(struct dir_file *dir);
 
-ssize_t incfs_read_data_file_block(struct mem_range dst, struct data_file *df,
-				   int index, int timeout_ms,
-				   struct mem_range tmp);
+ssize_t incfs_read_data_file_block(struct mem_range dst, struct file *f,
+			int index, int min_time_ms,
+			int min_pending_time_ms, int max_pending_time_ms,
+			struct mem_range tmp);
+
+int incfs_get_filled_blocks(struct data_file *df,
+			    struct incfs_file_data *fd,
+			    struct incfs_get_filled_blocks_args *arg);
 
 int incfs_read_file_signature(struct data_file *df, struct mem_range dst);
 
@@ -247,22 +360,24 @@ bool incfs_fresh_pending_reads_exist(struct mount_info *mi, int last_number);
  */
 int incfs_collect_pending_reads(struct mount_info *mi, int sn_lowerbound,
 				struct incfs_pending_read_info *reads,
-				int reads_size);
+				struct incfs_pending_read_info2 *reads2,
+				int reads_size, int *new_max_sn);
 
 int incfs_collect_logged_reads(struct mount_info *mi,
 			       struct read_log_state *start_state,
 			       struct incfs_pending_read_info *reads,
+			       struct incfs_pending_read_info2 *reads2,
 			       int reads_size);
 struct read_log_state incfs_get_log_state(struct mount_info *mi);
 int incfs_get_uncollected_logs_count(struct mount_info *mi,
-				     struct read_log_state state);
+				     const struct read_log_state *state);
 
 static inline struct inode_info *get_incfs_node(struct inode *inode)
 {
 	if (!inode)
 		return NULL;
 
-	if (inode->i_sb->s_magic != INCFS_MAGIC_NUMBER) {
+	if (inode->i_sb->s_magic != (long) INCFS_MAGIC_NUMBER) {
 		/* This inode doesn't belong to us. */
 		pr_warn_once("incfs: %s on an alien inode.", __func__);
 		return NULL;
@@ -335,7 +450,5 @@ static inline int get_blocks_count_for_size(u64 size)
 		return 0;
 	return 1 + (size - 1) / INCFS_DATA_FILE_BLOCK_SIZE;
 }
-
-bool incfs_equal_ranges(struct mem_range lhs, struct mem_range rhs);
 
 #endif /* _INCFS_DATA_MGMT_H */

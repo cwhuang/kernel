@@ -11,6 +11,7 @@
 #include "isp_params.h"
 #include "isp_params_v1x.h"
 #include "isp_params_v2x.h"
+#include "isp_params_v21.h"
 
 #define PARAMS_NAME DRIVER_NAME "-input-params"
 #define RKISP_ISP_PARAMS_REQ_BUFS_MIN	2
@@ -231,7 +232,11 @@ static int rkisp_params_fh_open(struct file *filp)
 static int rkisp_params_fop_release(struct file *file)
 {
 	struct rkisp_isp_params_vdev *params = video_drvdata(file);
+	struct video_device *vdev = video_devdata(file);
 	int ret;
+
+	if (file->private_data == vdev->queue->owner && params->ops->fop_release)
+		params->ops->fop_release(params);
 
 	ret = vb2_fop_release(file);
 	if (!ret) {
@@ -277,6 +282,8 @@ static int rkisp_init_params_vdev(struct rkisp_isp_params_vdev *params_vdev)
 
 	if (params_vdev->dev->isp_ver <= ISP_V13)
 		return rkisp_init_params_vdev_v1x(params_vdev);
+	else if (params_vdev->dev->isp_ver == ISP_V21)
+		return rkisp_init_params_vdev_v21(params_vdev);
 	else
 		return rkisp_init_params_vdev_v2x(params_vdev);
 }
@@ -285,6 +292,8 @@ static void rkisp_uninit_params_vdev(struct rkisp_isp_params_vdev *params_vdev)
 {
 	if (params_vdev->dev->isp_ver <= ISP_V13)
 		rkisp_uninit_params_vdev_v1x(params_vdev);
+	else if (params_vdev->dev->isp_ver == ISP_V21)
+		rkisp_uninit_params_vdev_v21(params_vdev);
 	else
 		rkisp_uninit_params_vdev_v2x(params_vdev);
 }
@@ -295,6 +304,12 @@ void rkisp_params_cfg(struct rkisp_isp_params_vdev *params_vdev,
 	if (params_vdev->ops->param_cfg)
 		params_vdev->ops->param_cfg(params_vdev, frame_id,
 					    rdbk_times, RKISP_PARAMS_IMD);
+}
+
+void rkisp_params_cfgsram(struct rkisp_isp_params_vdev *params_vdev)
+{
+	if (params_vdev->ops->param_cfgsram)
+		params_vdev->ops->param_cfgsram(params_vdev);
 }
 
 void rkisp_params_isr(struct rkisp_isp_params_vdev *params_vdev,
@@ -318,6 +333,24 @@ void rkisp_params_first_cfg(struct rkisp_isp_params_vdev *params_vdev,
 void rkisp_params_disable_isp(struct rkisp_isp_params_vdev *params_vdev)
 {
 	params_vdev->ops->disable_isp(params_vdev);
+}
+
+void rkisp_params_get_ldchbuf_inf(struct rkisp_isp_params_vdev *params_vdev,
+				  struct rkisp_ldchbuf_info *ldchbuf)
+{
+	params_vdev->ops->get_ldchbuf_inf(params_vdev, ldchbuf);
+}
+
+void rkisp_params_set_ldchbuf_size(struct rkisp_isp_params_vdev *params_vdev,
+				   struct rkisp_ldchbuf_size *ldchsize)
+{
+	params_vdev->ops->set_ldchbuf_size(params_vdev, ldchsize);
+}
+
+void rkisp_params_stream_stop(struct rkisp_isp_params_vdev *params_vdev)
+{
+	if (params_vdev->ops->stream_stop)
+		params_vdev->ops->stream_stop(params_vdev);
 }
 
 int rkisp_register_params_vdev(struct rkisp_isp_params_vdev *params_vdev,

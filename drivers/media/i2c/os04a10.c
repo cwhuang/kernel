@@ -8,6 +8,7 @@
  * V0.0X01.0X01 support conversion gain switch.
  * V0.0X01.0X02 add debug interface for conversion gain switch.
  * V0.0X01.0X03 support enum sensor fmt
+ * V0.0X01.0X04 add quick stream on/off
  */
 
 #include <linux/clk.h>
@@ -30,7 +31,7 @@
 #include <linux/rk-preisp.h>
 #include "../platform/rockchip/isp/rkisp_tb_helper.h"
 
-#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x03)
+#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x04)
 
 #ifndef V4L2_CID_DIGITAL_GAIN
 #define V4L2_CID_DIGITAL_GAIN		V4L2_CID_GAIN
@@ -1446,6 +1447,7 @@ static long os04a10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	struct rkmodule_hdr_cfg *hdr_cfg;
 	long ret = 0;
 	u32 i, h, w;
+	u32 stream = 0;
 
 	switch (cmd) {
 	case PREISP_CMD_SET_HDRAE_EXP:
@@ -1490,6 +1492,17 @@ static long os04a10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	case RKMODULE_SET_CONVERSION_GAIN:
 		ret = os04a10_set_conversion_gain(os04a10, (u32 *)arg);
 		break;
+	case RKMODULE_SET_QUICK_STREAM:
+
+		stream = *((u32 *)arg);
+
+		if (stream)
+			ret = os04a10_write_reg(os04a10->client, OS04A10_REG_CTRL_MODE,
+				OS04A10_REG_VALUE_08BIT, OS04A10_MODE_STREAMING);
+		else
+			ret = os04a10_write_reg(os04a10->client, OS04A10_REG_CTRL_MODE,
+				OS04A10_REG_VALUE_08BIT, OS04A10_MODE_SW_STANDBY);
+		break;
 	default:
 		ret = -ENOIOCTLCMD;
 		break;
@@ -1509,6 +1522,7 @@ static long os04a10_compat_ioctl32(struct v4l2_subdev *sd,
 	struct preisp_hdrae_exp_s *hdrae;
 	long ret;
 	u32 cg = 0;
+	u32 stream = 0;
 
 	switch (cmd) {
 	case RKMODULE_GET_MODULE_INFO:
@@ -1575,6 +1589,11 @@ static long os04a10_compat_ioctl32(struct v4l2_subdev *sd,
 		ret = copy_from_user(&cg, up, sizeof(cg));
 		if (!ret)
 			ret = os04a10_ioctl(sd, cmd, &cg);
+		break;
+	case RKMODULE_SET_QUICK_STREAM:
+		ret = copy_from_user(&stream, up, sizeof(u32));
+		if (!ret)
+			ret = os04a10_ioctl(sd, cmd, &stream);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
@@ -1764,7 +1783,7 @@ static int __os04a10_power_on(struct os04a10 *os04a10)
 		return ret;
 	}
 	if (!IS_ERR(os04a10->reset_gpio))
-		gpiod_set_value_cansleep(os04a10->reset_gpio, 1);
+		gpiod_direction_output(os04a10->reset_gpio, 1);
 
 	ret = regulator_bulk_enable(OS04A10_NUM_SUPPLIES, os04a10->supplies);
 	if (ret < 0) {
@@ -1773,11 +1792,11 @@ static int __os04a10_power_on(struct os04a10 *os04a10)
 	}
 
 	if (!IS_ERR(os04a10->reset_gpio))
-		gpiod_set_value_cansleep(os04a10->reset_gpio, 0);
+		gpiod_direction_output(os04a10->reset_gpio, 0);
 
 	usleep_range(500, 1000);
 	if (!IS_ERR(os04a10->pwdn_gpio))
-		gpiod_set_value_cansleep(os04a10->pwdn_gpio, 1);
+		gpiod_direction_output(os04a10->pwdn_gpio, 1);
 	/*
 	 * There is no need to wait for the delay of RC circuit
 	 * if the reset signal is directly controlled by GPIO.
@@ -1803,25 +1822,23 @@ static void __os04a10_power_off(struct os04a10 *os04a10)
 {
 	int ret;
 	struct device *dev = &os04a10->client->dev;
-	bool is_first_streamoff = false;
 
 	if (os04a10->is_thunderboot) {
 		if (os04a10->is_first_streamoff) {
 			os04a10->is_thunderboot = false;
 			os04a10->is_first_streamoff = false;
-			is_first_streamoff = true;
 		} else {
 			return;
 		}
 	}
 
 	if (!IS_ERR(os04a10->pwdn_gpio))
-		gpiod_set_value_cansleep(os04a10->pwdn_gpio, 0);
+		gpiod_direction_output(os04a10->pwdn_gpio, 0);
 
 	clk_disable_unprepare(os04a10->xvclk);
 
 	if (!IS_ERR(os04a10->reset_gpio))
-		gpiod_set_value_cansleep(os04a10->reset_gpio, 0);
+		gpiod_direction_output(os04a10->reset_gpio, 0);
 	if (!IS_ERR_OR_NULL(os04a10->pins_sleep)) {
 		ret = pinctrl_select_state(os04a10->pinctrl,
 					   os04a10->pins_sleep);
@@ -1955,7 +1972,7 @@ static int os04a10_set_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	}
 
-	if (pm_runtime_get(&client->dev) <= 0)
+	if (!pm_runtime_get_if_in_use(&client->dev))
 		return 0;
 
 	switch (ctrl->id) {
@@ -2222,11 +2239,11 @@ static int os04a10_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	os04a10->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	os04a10->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_ASIS);
 	if (IS_ERR(os04a10->reset_gpio))
 		dev_warn(dev, "Failed to get reset-gpios\n");
 
-	os04a10->pwdn_gpio = devm_gpiod_get(dev, "pwdn", GPIOD_OUT_LOW);
+	os04a10->pwdn_gpio = devm_gpiod_get(dev, "pwdn", GPIOD_ASIS);
 	if (IS_ERR(os04a10->pwdn_gpio))
 		dev_warn(dev, "Failed to get pwdn-gpios\n");
 

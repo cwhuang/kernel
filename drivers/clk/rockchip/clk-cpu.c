@@ -121,6 +121,42 @@ static void rockchip_cpuclk_set_dividers(struct rockchip_cpuclk *cpuclk,
 	}
 }
 
+static void rockchip_cpuclk_set_pre_muxs(struct rockchip_cpuclk *cpuclk,
+					 const struct rockchip_cpuclk_rate_table *rate)
+{
+	int i;
+
+	/* alternate parent is active now. set the pre_muxs */
+	for (i = 0; i < ARRAY_SIZE(rate->pre_muxs); i++) {
+		const struct rockchip_cpuclk_clksel *clksel = &rate->pre_muxs[i];
+
+		if (!clksel->reg)
+			break;
+
+		pr_debug("%s: setting reg 0x%x to 0x%x\n",
+			 __func__, clksel->reg, clksel->val);
+		writel(clksel->val, cpuclk->reg_base + clksel->reg);
+	}
+}
+
+static void rockchip_cpuclk_set_post_muxs(struct rockchip_cpuclk *cpuclk,
+					  const struct rockchip_cpuclk_rate_table *rate)
+{
+	int i;
+
+	/* alternate parent is active now. set the muxs */
+	for (i = 0; i < ARRAY_SIZE(rate->post_muxs); i++) {
+		const struct rockchip_cpuclk_clksel *clksel = &rate->post_muxs[i];
+
+		if (!clksel->reg)
+			break;
+
+		pr_debug("%s: setting reg 0x%x to 0x%x\n",
+			 __func__, clksel->reg, clksel->val);
+		writel(clksel->val, cpuclk->reg_base + clksel->reg);
+	}
+}
+
 static int rockchip_cpuclk_pre_rate_change(struct rockchip_cpuclk *cpuclk,
 					   struct clk_notifier_data *ndata)
 {
@@ -165,6 +201,19 @@ static int rockchip_cpuclk_pre_rate_change(struct rockchip_cpuclk *cpuclk,
 		writel(HIWORD_UPDATE(alt_div, reg_data->div_core_mask,
 				     reg_data->div_core_shift),
 		       cpuclk->reg_base + reg_data->core_reg);
+		if (reg_data->core1_reg)
+			writel(HIWORD_UPDATE(alt_div, reg_data->div_core1_mask,
+					     reg_data->div_core1_shift),
+			       cpuclk->reg_base + reg_data->core1_reg);
+		if (reg_data->core2_reg)
+			writel(HIWORD_UPDATE(alt_div, reg_data->div_core2_mask,
+					     reg_data->div_core2_shift),
+			       cpuclk->reg_base + reg_data->core2_reg);
+		if (reg_data->core3_reg)
+			writel(HIWORD_UPDATE(alt_div, reg_data->div_core3_mask,
+					     reg_data->div_core3_shift),
+			       cpuclk->reg_base + reg_data->core3_reg);
+
 	}
 	rockchip_boost_add_core_div(cpuclk->pll_hw, alt_prate);
 
@@ -173,6 +222,8 @@ static int rockchip_cpuclk_pre_rate_change(struct rockchip_cpuclk *cpuclk,
 			     reg_data->mux_core_mask,
 			     reg_data->mux_core_shift),
 	       cpuclk->reg_base + reg_data->core_reg);
+
+	rockchip_cpuclk_set_pre_muxs(cpuclk, rate);
 
 	spin_unlock_irqrestore(cpuclk->lock, flags);
 	return 0;
@@ -203,10 +254,24 @@ static int rockchip_cpuclk_post_rate_change(struct rockchip_cpuclk *cpuclk,
 			     reg_data->mux_core_shift),
 	       cpuclk->reg_base + reg_data->core_reg);
 
+	rockchip_cpuclk_set_post_muxs(cpuclk, rate);
+
 	/* remove dividers */
 	writel(HIWORD_UPDATE(0, reg_data->div_core_mask,
 			     reg_data->div_core_shift),
 	       cpuclk->reg_base + reg_data->core_reg);
+	if (reg_data->core1_reg)
+		writel(HIWORD_UPDATE(0, reg_data->div_core1_mask,
+				     reg_data->div_core1_shift),
+		       cpuclk->reg_base + reg_data->core1_reg);
+	if (reg_data->core2_reg)
+		writel(HIWORD_UPDATE(0, reg_data->div_core2_mask,
+				     reg_data->div_core2_shift),
+		       cpuclk->reg_base + reg_data->core2_reg);
+	if (reg_data->core3_reg)
+		writel(HIWORD_UPDATE(0, reg_data->div_core3_mask,
+				     reg_data->div_core3_shift),
+		       cpuclk->reg_base + reg_data->core3_reg);
 
 	if (ndata->old_rate > ndata->new_rate)
 		rockchip_cpuclk_set_dividers(cpuclk, rate);
@@ -247,7 +312,7 @@ struct clk *rockchip_clk_register_cpuclk(const char *name,
 			int nrates, void __iomem *reg_base, spinlock_t *lock)
 {
 	struct rockchip_cpuclk *cpuclk;
-	struct clk_init_data init;
+	struct clk_init_data init = {};
 	struct clk *clk, *cclk, *pll_clk;
 	int ret;
 

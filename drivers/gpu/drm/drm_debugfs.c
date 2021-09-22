@@ -227,6 +227,8 @@ static ssize_t vop_dump_write(struct file *file, const char __user *ubuf,
 	struct vop_dump_list *pos, *n;
 	int i = 0;
 
+	if (!crtc->vop_dump_list_init_flag)
+		return -EPERM;
 	if (len > sizeof(buf) - 1)
 		return -EINVAL;
 	if (copy_from_user(buf, ubuf, len))
@@ -491,13 +493,13 @@ static ssize_t connector_write(struct file *file, const char __user *ubuf,
 
 	buf[len] = '\0';
 
-	if (!strcmp(buf, "on"))
+	if (sysfs_streq(buf, "on"))
 		connector->force = DRM_FORCE_ON;
-	else if (!strcmp(buf, "digital"))
+	else if (sysfs_streq(buf, "digital"))
 		connector->force = DRM_FORCE_ON_DIGITAL;
-	else if (!strcmp(buf, "off"))
+	else if (sysfs_streq(buf, "off"))
 		connector->force = DRM_FORCE_OFF;
-	else if (!strcmp(buf, "unspecified"))
+	else if (sysfs_streq(buf, "unspecified"))
 		connector->force = DRM_FORCE_UNSPECIFIED;
 	else
 		return -EINVAL;

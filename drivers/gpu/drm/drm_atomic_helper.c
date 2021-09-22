@@ -660,7 +660,7 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 		}
 
 		if (funcs->atomic_check)
-			ret = funcs->atomic_check(connector, new_connector_state);
+			ret = funcs->atomic_check(connector, state);
 		if (ret)
 			return ret;
 
@@ -702,7 +702,7 @@ drm_atomic_helper_check_modeset(struct drm_device *dev,
 			continue;
 
 		if (funcs->atomic_check)
-			ret = funcs->atomic_check(connector, new_connector_state);
+			ret = funcs->atomic_check(connector, state);
 		if (ret)
 			return ret;
 	}
@@ -2355,33 +2355,9 @@ void drm_atomic_helper_commit_planes(struct drm_device *dev,
 	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
 	struct drm_plane *plane;
 	struct drm_plane_state *old_plane_state, *new_plane_state;
-	struct drm_connector *connector;
-	struct drm_connector_state *old_connector_state, *new_connector_state;
 	int i;
 	bool active_only = flags & DRM_PLANE_COMMIT_ACTIVE_ONLY;
 	bool no_disable = flags & DRM_PLANE_COMMIT_NO_DISABLE_AFTER_MODESET;
-
-	for_each_oldnew_connector_in_state(old_state, connector,
-					   old_connector_state,
-					   new_connector_state, i) {
-		const struct drm_connector_helper_funcs *funcs;
-
-		if (!connector->state->crtc)
-			continue;
-
-		if (!connector->state->crtc->state->active)
-			continue;
-
-		funcs = connector->helper_private;
-
-		if (!funcs || !funcs->atomic_begin)
-			continue;
-
-		DRM_DEBUG_ATOMIC("flush beginning [CONNECTOR:%d:%s]\n",
-				 connector->base.id, connector->name);
-
-		funcs->atomic_begin(connector, old_connector_state);
-	}
 
 	for_each_oldnew_crtc_in_state(old_state, crtc, old_crtc_state, new_crtc_state, i) {
 		const struct drm_crtc_helper_funcs *funcs;
@@ -2453,28 +2429,6 @@ void drm_atomic_helper_commit_planes(struct drm_device *dev,
 			continue;
 
 		funcs->atomic_flush(crtc, old_crtc_state);
-	}
-
-	for_each_oldnew_connector_in_state(old_state, connector,
-					   old_connector_state,
-					   new_connector_state, i) {
-		const struct drm_connector_helper_funcs *funcs;
-
-		if (!connector->state->crtc)
-			continue;
-
-		if (!connector->state->crtc->state->active)
-			continue;
-
-		funcs = connector->helper_private;
-
-		if (!funcs || !funcs->atomic_flush)
-			continue;
-
-		DRM_DEBUG_ATOMIC("flushing [CONNECTOR:%d:%s]\n",
-				 connector->base.id, connector->name);
-
-		funcs->atomic_flush(connector, old_connector_state);
 	}
 }
 EXPORT_SYMBOL(drm_atomic_helper_commit_planes);
@@ -3090,6 +3044,7 @@ commit:
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(__drm_atomic_helper_set_config);
 
 static int __drm_atomic_helper_disable_all(struct drm_device *dev,
 					   struct drm_modeset_acquire_ctx *ctx,
@@ -3843,7 +3798,6 @@ __drm_atomic_helper_connector_duplicate_state(struct drm_connector *connector,
 	if (state->hdr_output_metadata)
 		drm_property_blob_get(state->hdr_output_metadata);
 
-	state->hdr_metadata_changed = false;
 	/* Don't copy over a writeback job, they are used only once */
 	state->writeback_job = NULL;
 }

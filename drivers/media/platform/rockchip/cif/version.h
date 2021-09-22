@@ -36,6 +36,24 @@
  *1. support crop function
  *2. fix compile error when config with module
  *3. support mipi yuv
+ *4. support selection ioctl for cropping
+ *5. support cif compact mode(lvds & mipi) can be set from user space
+ *v0.1.6
+ *1. add cif self-defined ioctrl cmd:V4L2_CID_CIF_DATA_COMPACT
+ *v0.1.7
+ *1. support dvp and mipi/lvds run simultaneously
+ *2. add subdev as interface for isp
+ *3. support hdr_x3 mode
+ *4. support rk1808 mipi interface in kernel-4.19
+ *v0.1.8
+ *1. add proc interface
+ *2. add reset mechanism to resume when csi crc err
+ *3. support bt1120 single path
+ *v0.1.9
+ *1. support rk3568 cif
+ *2. support rk3568 csi-host
+ *3. add dvp sof
+ *4. add extended lines to out image for normal & hdr short frame
  */
 
 #define RKCIF_DRIVER_VERSION RKCIF_API_VERSION

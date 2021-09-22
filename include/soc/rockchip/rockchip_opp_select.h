@@ -6,7 +6,7 @@
 #ifndef __SOC_ROCKCHIP_OPP_SELECT_H
 #define __SOC_ROCKCHIP_OPP_SELECT_H
 
-#ifdef CONFIG_ROCKCHIP_OPP
+#if IS_ENABLED(CONFIG_ROCKCHIP_OPP)
 int rockchip_of_get_leakage(struct device *dev, char *lkg_name, int *leakage);
 void rockchip_of_get_lkg_sel(struct device *dev, struct device_node *np,
 			     char *lkg_name, int process,
@@ -16,6 +16,8 @@ void rockchip_of_get_pvtm_sel(struct device *dev, struct device_node *np,
 			      int *volt_sel, int *scale_sel);
 void rockchip_of_get_bin_sel(struct device *dev, struct device_node *np,
 			     int bin, int *scale_sel);
+void rockchip_of_get_bin_volt_sel(struct device *dev, struct device_node *np,
+				  int bin, int *bin_volt_sel);
 int rockchip_get_efuse_value(struct device_node *np, char *porp_name,
 			     int *value);
 void rockchip_get_soc_info(struct device *dev,
@@ -54,6 +56,12 @@ static inline void rockchip_of_get_pvtm_sel(struct device *dev,
 static inline void rockchip_of_get_bin_sel(struct device *dev,
 					   struct device_node *np, int bin,
 					   int *scale_sel)
+{
+}
+
+static inline void rockchip_of_get_bin_volt_sel(struct device *dev,
+						struct device_node *np,
+						int bin, int *bin_volt_sel)
 {
 }
 

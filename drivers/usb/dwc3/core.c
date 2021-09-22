@@ -8,6 +8,7 @@
  *	    Sebastian Andrzej Siewior <bigeasy@linutronix.de>
  */
 
+#include <linux/async.h>
 #include <linux/clk.h>
 #include <linux/version.h>
 #include <linux/module.h>
@@ -1089,6 +1090,13 @@ static int dwc3_core_init(struct dwc3 *dwc)
 		if (dwc->dis_tx_ipgap_linecheck_quirk)
 			reg |= DWC3_GUCTL1_TX_IPGAP_LINECHECK_DIS;
 
+		if (dwc->parkmode_disable_ss_quirk)
+			reg |= DWC3_GUCTL1_PARKMODE_DISABLE_SS;
+
+		if (dwc->maximum_speed == USB_SPEED_HIGH ||
+		    dwc->maximum_speed == USB_SPEED_FULL)
+			reg |= DWC3_GUCTL1_DEV_FORCE_20_CLK_FOR_30_CLK;
+
 		dwc3_writel(dwc->regs, DWC3_GUCTL1, reg);
 	}
 
@@ -1265,7 +1273,10 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
 		 * keep PD on and run phy_power_on again to avoid
 		 * phy_power_on failed (error -110) in Rockchip platform.
 		 */
-		device_init_wakeup(dev, true);
+		if (!of_machine_is_compatible("rockchip,rk3568") &&
+		    !of_machine_is_compatible("rockchip,rk3566"))
+			device_init_wakeup(dev, true);
+
 		phy_power_on(dwc->usb3_generic_phy);
 
 		dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST);
@@ -1420,6 +1431,8 @@ static void dwc3_get_properties(struct dwc3 *dwc)
 				"snps,dis-del-phy-power-chg-quirk");
 	dwc->dis_tx_ipgap_linecheck_quirk = device_property_read_bool(dev,
 				"snps,dis-tx-ipgap-linecheck-quirk");
+	dwc->parkmode_disable_ss_quirk = device_property_read_bool(dev,
+				"snps,parkmode-disable-ss-quirk");
 	dwc->xhci_slow_suspend_quirk = device_property_read_bool(dev,
 				"snps,xhci-slow-suspend-quirk");
 	dwc->xhci_trb_ent_quirk = device_property_read_bool(dev,
@@ -1514,6 +1527,14 @@ static void dwc3_check_params(struct dwc3 *dwc)
 
 		break;
 	}
+}
+
+static void dwc3_rockchip_async_probe(void *data, async_cookie_t cookie)
+{
+	struct dwc3 *dwc = data;
+	struct device *dev = dwc->dev;
+
+	pm_runtime_put_sync_suspend(dev);
 }
 
 static int dwc3_probe(struct platform_device *pdev)
@@ -1662,12 +1683,27 @@ static int dwc3_probe(struct platform_device *pdev)
 		goto err5;
 
 	dwc3_debugfs_init(dwc);
-	pm_runtime_put(dev);
+
+	if (dwc->en_runtime)
+		async_schedule(dwc3_rockchip_async_probe, dwc);
+	else
+		pm_runtime_put(dev);
 
 	return 0;
 
 err5:
 	dwc3_event_buffers_cleanup(dwc);
+
+	usb_phy_shutdown(dwc->usb2_phy);
+	usb_phy_shutdown(dwc->usb3_phy);
+	phy_exit(dwc->usb2_generic_phy);
+	phy_exit(dwc->usb3_generic_phy);
+
+	usb_phy_set_suspend(dwc->usb2_phy, 1);
+	usb_phy_set_suspend(dwc->usb3_phy, 1);
+	phy_power_off(dwc->usb2_generic_phy);
+	phy_power_off(dwc->usb3_generic_phy);
+
 	dwc3_ulpi_exit(dwc);
 
 err4:
@@ -1706,9 +1742,9 @@ static int dwc3_remove(struct platform_device *pdev)
 	dwc3_core_exit(dwc);
 	dwc3_ulpi_exit(dwc);
 
-	pm_runtime_put_sync(&pdev->dev);
-	pm_runtime_allow(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
+	pm_runtime_put_noidle(&pdev->dev);
+	pm_runtime_set_suspended(&pdev->dev);
 
 	dwc3_free_event_buffers(dwc);
 	dwc3_free_scratch_buffers(dwc);

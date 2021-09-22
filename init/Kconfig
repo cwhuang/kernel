@@ -594,7 +594,8 @@ config IKHEADERS
 
 config LOG_BUF_SHIFT
 	int "Kernel log buffer size (16 => 64KB, 17 => 128KB)"
-	range 12 25
+	range 12 25 if !H8300
+	range 12 19 if H8300
 	default 17
 	depends on PRINTK
 	help
@@ -1230,6 +1231,14 @@ config INITRD_ASYNC
 	bool "Initrd async"
 	help
 	  Init ramdisk async, can reduce kernel init time.
+
+config ROCKCHIP_ONE_INITRD
+	bool "Detect only one initrd"
+	depends on ARCH_ROCKCHIP
+	default ARCH_ROCKCHIP
+	help
+	  RK bootloader does not put a correct size to cmdline.
+	  Directly return when we get a good initrd.
 
 endif
 

@@ -54,6 +54,10 @@
 #include "rga2_mmu_info.h"
 #include "RGA2_API.h"
 
+#if IS_ENABLED(CONFIG_ION_ROCKCHIP) && (LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0))
+#include <linux/rockchip_ion.h>
+#endif
+
 #if ((defined(CONFIG_RK_IOMMU) || defined(CONFIG_ROCKCHIP_IOMMU)) && defined(CONFIG_ION_ROCKCHIP))
 #define CONFIG_RGA_IOMMU
 #endif
@@ -303,6 +307,10 @@ static const char *rga2_get_format_name(uint32_t format)
 		return "BPP4";
 	case RGA2_FORMAT_BPP_8:
 		return "BPP8";
+	case RGA2_FORMAT_YCbCr_400:
+		return "YCbCr400";
+	case RGA2_FORMAT_Y4:
+		return "y4";
 	default:
 		return "UNF";
 	}
@@ -318,6 +326,15 @@ static void print_debug_info(struct rga2_req *req)
 	     req->src.act_w, req->src.act_h, req->src.vir_w, req->src.vir_h,
 	     req->src.x_offset, req->src.y_offset,
 	     rga2_get_format_name(req->src.format));
+	if (req->src1.yrgb_addr != 0 ||
+	    req->src1.uv_addr != 0 ||
+	    req->src1.v_addr != 0) {
+		INFO("src1 : y=%lx uv=%lx v=%lx aw=%d ah=%d vw=%d vh=%d xoff=%d yoff=%d format=%s\n",
+		     req->src1.yrgb_addr, req->src1.uv_addr, req->src1.v_addr,
+		     req->src1.act_w, req->src1.act_h, req->src1.vir_w, req->src1.vir_h,
+		     req->src1.x_offset, req->src1.y_offset,
+		     rga2_get_format_name(req->src1.format));
+	}
 	INFO("dst : y=%lx uv=%lx v=%lx aw=%d ah=%d vw=%d vh=%d xoff=%d yoff=%d format=%s\n",
 	     req->dst.yrgb_addr, req->dst.uv_addr, req->dst.v_addr,
 	     req->dst.act_w, req->dst.act_h, req->dst.vir_w, req->dst.vir_h,
@@ -674,8 +691,8 @@ static int rga2_flush(rga2_session *session, unsigned long arg)
 {
 	int ret = 0;
 	int ret_timeout;
-	ktime_t start = 0;
-	ktime_t end = 0;
+	ktime_t start = ktime_set(0, 0);
+	ktime_t end = ktime_set(0, 0);
 
 #if RGA2_DEBUGFS
 	if (RGA2_TEST_TIME)
@@ -922,14 +939,14 @@ static void rga2_try_set_reg(void)
 			rga2_copy_reg(reg, 0);
 			rga2_reg_from_wait_to_run(reg);
 
-			rga2_dma_flush_range(&rga2_service.cmd_buff[0], &rga2_service.cmd_buff[32]);
+			rga2_dma_flush_range(&reg->cmd_reg[0], &reg->cmd_reg[32]);
 
 			//rga2_soft_reset();
 
 			rga2_write(0x0, RGA2_SYS_CTRL);
 
 			/* CMD buff */
-			rga2_write(virt_to_phys(rga2_service.cmd_buff), RGA2_CMD_BASE);
+			rga2_write(virt_to_phys(reg->cmd_reg), RGA2_CMD_BASE);
 
 #if RGA2_DEBUGFS
 			if (RGA2_TEST_REG) {
@@ -1417,6 +1434,7 @@ static int rga2_blit_flush_cache(rga2_session *session, struct rga2_req *req)
 #endif
 	if ((req->mmu_info.src0_mmu_flag & 1) || (req->mmu_info.src1_mmu_flag & 1) ||
 	    (req->mmu_info.dst_mmu_flag & 1) || (req->mmu_info.els_mmu_flag & 1)) {
+		reg->MMU_map = true;
 		ret = rga2_set_mmu_info(reg, req);
 		if (ret < 0) {
 			pr_err("%s, [%d] set mmu info error\n", __func__, __LINE__);
@@ -2023,6 +2041,24 @@ static int rga2_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static void RGA2_flush_page(void)
+{
+	struct rga2_reg *reg;
+	int i;
+
+	reg = list_entry(rga2_service.running.prev,
+			 struct rga2_reg, status_link);
+
+	if (reg == NULL)
+		return;
+	if (reg->MMU_base == NULL)
+		return;
+
+	for (i = 0; i < reg->MMU_count; i++)
+		rga2_dma_flush_page(phys_to_page(reg->MMU_base[i]),
+				    MMU_UNMAP_INVALID);
+}
+
 static irqreturn_t rga2_irq_thread(int irq, void *dev_id)
 {
 #if RGA2_DEBUGFS
@@ -2030,6 +2066,7 @@ static irqreturn_t rga2_irq_thread(int irq, void *dev_id)
 		INFO("irqthread INT[%x],STATS[%x]\n", rga2_read(RGA2_INT),
 		     rga2_read(RGA2_STATUS));
 #endif
+	RGA2_flush_page();
 	mutex_lock(&rga2_service.lock);
 	if (rga2_service.enable) {
 		rga2_del_running_list();

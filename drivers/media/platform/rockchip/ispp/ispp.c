@@ -8,6 +8,7 @@
 #include <linux/videodev2.h>
 #include <media/media-entity.h>
 #include <media/videobuf2-dma-contig.h>
+#include <media/v4l2-event.h>
 
 #include "dev.h"
 #include "regs.h"
@@ -258,8 +259,18 @@ static int rkispp_sd_s_stream(struct v4l2_subdev *sd, int on)
 			       video, s_stream, on);
 	if ((on && ret) || (!on && !ret)) {
 		ispp_sdev->state = ISPP_STOP;
+		if (dev->stream_vdev.monitor.is_en) {
+			dev->stream_vdev.monitor.is_en = false;
+			if (!completion_done(&dev->stream_vdev.monitor.cmpl))
+				complete(&dev->stream_vdev.monitor.cmpl);
+			if (!completion_done(&dev->stream_vdev.monitor.tnr.cmpl))
+				complete(&dev->stream_vdev.monitor.tnr.cmpl);
+			if (!completion_done(&dev->stream_vdev.monitor.nr.cmpl))
+				complete(&dev->stream_vdev.monitor.nr.cmpl);
+			if (!completion_done(&dev->stream_vdev.monitor.fec.cmpl))
+				complete(&dev->stream_vdev.monitor.fec.cmpl);
+		}
 		rkispp_event_handle(dev, CMD_STREAM, &ispp_sdev->state);
-		rkispp_event_handle(dev, CMD_FREE_POOL, NULL);
 	}
 	return ret;
 }
@@ -275,8 +286,17 @@ static int rkispp_sd_s_rx_buffer(struct v4l2_subdev *sd,
 	if (!buf)
 		return -EINVAL;
 
-	if (ispp_sdev->state == ISPP_START)
+	if (ispp_sdev->state == ISPP_START) {
+		struct rkisp_ispp_buf *dbufs = buf;
+		struct rkispp_stream_vdev *vdev = &dev->stream_vdev;
+		u64 ns = ktime_get_ns();
+
+		vdev->dbg.interval = ns - vdev->dbg.timestamp;
+		vdev->dbg.timestamp = ns;
+		vdev->dbg.delay = ns - dbufs->frame_timestamp;
+		vdev->dbg.id = dbufs->frame_id;
 		cmd = CMD_QUEUE_DMABUF;
+	}
 
 	return rkispp_event_handle(dev, cmd, buf);
 }
@@ -290,13 +310,6 @@ static int rkispp_sd_s_power(struct v4l2_subdev *sd, int on)
 	v4l2_dbg(1, rkispp_debug, &ispp_dev->v4l2_dev,
 		 "s_power on:%d\n", on);
 	if (on) {
-		ret = pm_runtime_get_sync(ispp_dev->dev);
-		if (ret < 0) {
-			v4l2_err(&ispp_dev->v4l2_dev,
-				 "%s runtime get failed:%d\n",
-				 __func__, ret);
-			return ret;
-		}
 		atomic_set(&ispp_sdev->frm_sync_seq, 0);
 		if (ispp_dev->inp == INP_ISP) {
 			struct v4l2_subdev_format fmt;
@@ -310,7 +323,7 @@ static int rkispp_sd_s_power(struct v4l2_subdev *sd, int on)
 				v4l2_err(&ispp_dev->v4l2_dev,
 					 "%s get format fail:%d\n",
 					 __func__, ret);
-				goto err;
+				return ret;
 			}
 			sel.pad = RKISPP_PAD_SINK;
 			sel.target = V4L2_SEL_TGT_CROP;
@@ -321,7 +334,7 @@ static int rkispp_sd_s_power(struct v4l2_subdev *sd, int on)
 				v4l2_err(&ispp_dev->v4l2_dev,
 					 "%s get crop fail:%d\n",
 					 __func__, ret);
-				goto err;
+				return ret;
 			}
 
 			ret = v4l2_subdev_call(ispp_sdev->remote_sd,
@@ -330,13 +343,23 @@ static int rkispp_sd_s_power(struct v4l2_subdev *sd, int on)
 				v4l2_err(&ispp_dev->v4l2_dev,
 					 "%s set isp power on fail:%d\n",
 					 __func__, ret);
-				goto err;
+				return ret;
 			}
+		}
+		ret = pm_runtime_get_sync(ispp_dev->dev);
+		if (ret < 0) {
+			v4l2_err(&ispp_dev->v4l2_dev,
+				 "%s runtime get failed:%d\n",
+				 __func__, ret);
+			if (ispp_dev->inp == INP_ISP)
+				v4l2_subdev_call(ispp_sdev->remote_sd,
+						 core, s_power, 0);
+			return ret;
 		}
 	} else {
 		if (ispp_dev->inp == INP_ISP)
 			v4l2_subdev_call(ispp_sdev->remote_sd, core, s_power, 0);
-		ret = pm_runtime_put(ispp_dev->dev);
+		ret = pm_runtime_put_sync(ispp_dev->dev);
 		if (ret < 0)
 			v4l2_err(&ispp_dev->v4l2_dev,
 				 "%s runtime put failed:%d\n",
@@ -344,9 +367,113 @@ static int rkispp_sd_s_power(struct v4l2_subdev *sd, int on)
 	}
 
 	return ret;
-err:
-	pm_runtime_put(ispp_dev->dev);
+}
+
+static long rkispp_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+{
+	struct rkispp_subdev *ispp_sdev = v4l2_get_subdevdata(sd);
+	struct rkispp_device *ispp_dev = ispp_sdev->dev;
+	struct rkispp_fecbuf_info *fecbuf;
+	struct rkispp_fecbuf_size *fecsize;
+	struct rkisp_ispp_reg **reg_buf;
+	bool *rkispp_reg_withstream;
+	long ret = 0;
+
+	if (!arg)
+		return -EINVAL;
+
+	switch (cmd) {
+	case RKISPP_CMD_GET_FECBUF_INFO:
+		fecbuf = (struct rkispp_fecbuf_info *)arg;
+		rkispp_params_get_fecbuf_inf(&ispp_dev->params_vdev, fecbuf);
+		break;
+	case RKISPP_CMD_SET_FECBUF_SIZE:
+		fecsize = (struct rkispp_fecbuf_size *)arg;
+		rkispp_params_set_fecbuf_size(&ispp_dev->params_vdev, fecsize);
+		break;
+	case RKISP_ISPP_CMD_REQUEST_REGBUF:
+		reg_buf = (struct rkisp_ispp_reg **)arg;
+		rkispp_request_regbuf(ispp_dev, reg_buf);
+		break;
+	case RKISP_ISPP_CMD_GET_REG_WITHSTREAM:
+		rkispp_reg_withstream = arg;
+		*rkispp_reg_withstream = rkispp_get_reg_withstream();
+		break;
+	case RKISPP_CMD_TRIGGER_YNRRUN:
+		rkispp_sendbuf_to_nr(ispp_dev, (struct rkispp_tnr_inf *)arg);
+		break;
+	case RKISPP_CMD_GET_TNRBUF_FD:
+		ret = rkispp_get_tnrbuf_fd(ispp_dev, (struct rkispp_buf_idxfd *)arg);
+		break;
+	case RKISPP_CMD_TRIGGER_MODE:
+		rkispp_set_trigger_mode(ispp_dev, (struct rkispp_trigger_mode *)arg);
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+	}
+
 	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long rkispp_compat_ioctl32(struct v4l2_subdev *sd,
+				  unsigned int cmd, unsigned long arg)
+{
+	void __user *up = compat_ptr(arg);
+	struct rkispp_fecbuf_info fecbuf;
+	struct rkispp_fecbuf_size fecsize;
+	struct rkispp_tnr_inf tnr_inf;
+	struct rkispp_buf_idxfd idxfd;
+	struct rkispp_trigger_mode t_mode;
+	long ret = 0;
+
+	if (!up)
+		return -EINVAL;
+
+	switch (cmd) {
+	case RKISPP_CMD_GET_FECBUF_INFO:
+		ret = rkispp_ioctl(sd, cmd, &fecbuf);
+		if (!ret)
+			ret = copy_to_user(up, &fecbuf, sizeof(fecbuf));
+		break;
+	case RKISPP_CMD_SET_FECBUF_SIZE:
+		ret = copy_from_user(&fecsize, up, sizeof(fecsize));
+		if (!ret)
+			ret = rkispp_ioctl(sd, cmd, &fecsize);
+		break;
+	case RKISPP_CMD_TRIGGER_YNRRUN:
+		ret = copy_from_user(&tnr_inf, up, sizeof(tnr_inf));
+		if (!ret)
+			ret = rkispp_ioctl(sd, cmd, &tnr_inf);
+		break;
+	case RKISPP_CMD_GET_TNRBUF_FD:
+		ret = rkispp_ioctl(sd, cmd, &idxfd);
+		if (!ret)
+			ret = copy_to_user(up, &idxfd, sizeof(idxfd));
+		break;
+	case RKISPP_CMD_TRIGGER_MODE:
+		ret = copy_from_user(&t_mode, up, sizeof(t_mode));
+		if (!ret)
+			ret = rkispp_ioctl(sd, cmd, &t_mode);
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+	}
+
+	return ret;
+}
+#endif
+
+static int rkispp_subscribe_event(struct v4l2_subdev *sd,
+				  struct v4l2_fh *fh,
+				  struct v4l2_event_subscription *sub)
+{
+	switch (sub->type) {
+	case RKISPP_V4L2_EVENT_TNR_COMPLETE:
+		return v4l2_event_subscribe(fh, sub, RKISPP_BUF_MAX, NULL);
+	default:
+		return -EINVAL;
+	}
 }
 
 static const struct media_entity_operations rkispp_sd_media_ops = {
@@ -368,6 +495,12 @@ static const struct v4l2_subdev_video_ops rkispp_sd_video_ops = {
 
 static const struct v4l2_subdev_core_ops rkispp_sd_core_ops = {
 	.s_power = rkispp_sd_s_power,
+	.ioctl = rkispp_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl32 = rkispp_compat_ioctl32,
+#endif
+	.subscribe_event = rkispp_subscribe_event,
+	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
 };
 
 static struct v4l2_subdev_ops rkispp_sd_ops = {
@@ -388,7 +521,7 @@ int rkispp_register_subdev(struct rkispp_device *dev,
 	sd = &ispp_sdev->sd;
 	ispp_sdev->state = ISPP_STOP;
 	v4l2_subdev_init(sd, &rkispp_sd_ops);
-	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
 	sd->entity.ops = &rkispp_sd_media_ops;
 	snprintf(sd->name, sizeof(sd->name), "rkispp-subdev");
 	sd->entity.function = MEDIA_ENT_F_PROC_VIDEO_COMPOSER;

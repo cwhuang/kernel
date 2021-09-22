@@ -19,7 +19,7 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/regmap.h>
-#include <linux/debugfs.h>
+#include <linux/proc_fs.h>
 #include <soc/rockchip/pm_domains.h>
 
 #include "mpp_debug.h"
@@ -118,8 +118,8 @@ struct vdpu_dev {
 
 	struct mpp_clk_info aclk_info;
 	struct mpp_clk_info hclk_info;
-#ifdef CONFIG_DEBUG_FS
-	struct dentry *debugfs;
+#ifdef CONFIG_PROC_FS
+	struct proc_dir_entry *procfs;
 #endif
 	struct reset_control *rst_a;
 	struct reset_control *rst_h;
@@ -280,7 +280,6 @@ static int vdpu_extract_task_msg(struct vdpu_task *task,
 	u32 i;
 	int ret;
 	struct mpp_request *req;
-	struct reg_offset_info *off_inf = &task->off_inf;
 	struct mpp_hw_info *hw_info = task->mpp_task.hw_info;
 
 	for (i = 0; i < msgs->req_cnt; i++) {
@@ -317,19 +316,7 @@ static int vdpu_extract_task_msg(struct vdpu_task *task,
 			       req, sizeof(*req));
 		} break;
 		case MPP_CMD_SET_REG_ADDR_OFFSET: {
-			int off = off_inf->cnt * sizeof(off_inf->elem[0]);
-
-			ret = mpp_check_req(req, off, sizeof(off_inf->elem),
-					    0, sizeof(off_inf->elem));
-			if (ret)
-				continue;
-			if (copy_from_user(&off_inf->elem[off_inf->cnt],
-					   req->data,
-					   req->size)) {
-				mpp_err("copy_from_user failed\n");
-				return -EINVAL;
-			}
-			off_inf->cnt += req->size / sizeof(off_inf->elem[0]);
+			mpp_extract_reg_offset_info(&task->off_inf, req);
 		} break;
 		default:
 			break;
@@ -488,41 +475,43 @@ static int vdpu_free_task(struct mpp_session *session,
 	return 0;
 }
 
-#ifdef CONFIG_DEBUG_FS
-static int vdpu_debugfs_remove(struct mpp_dev *mpp)
+#ifdef CONFIG_PROC_FS
+static int vdpu_procfs_remove(struct mpp_dev *mpp)
 {
 	struct vdpu_dev *dec = to_vdpu_dev(mpp);
 
-	debugfs_remove_recursive(dec->debugfs);
+	if (dec->procfs) {
+		proc_remove(dec->procfs);
+		dec->procfs = NULL;
+	}
 
 	return 0;
 }
 
-static int vdpu_debugfs_init(struct mpp_dev *mpp)
+static int vdpu_procfs_init(struct mpp_dev *mpp)
 {
 	struct vdpu_dev *dec = to_vdpu_dev(mpp);
 
-	dec->debugfs = debugfs_create_dir(mpp->dev->of_node->name,
-					  mpp->srv->debugfs);
-	if (IS_ERR_OR_NULL(dec->debugfs)) {
-		mpp_err("failed on open debugfs\n");
-		dec->debugfs = NULL;
+	dec->procfs = proc_mkdir(mpp->dev->of_node->name, mpp->srv->procfs);
+	if (IS_ERR_OR_NULL(dec->procfs)) {
+		mpp_err("failed on open procfs\n");
+		dec->procfs = NULL;
 		return -EIO;
 	}
-	debugfs_create_u32("aclk", 0644,
-			   dec->debugfs, &dec->aclk_info.debug_rate_hz);
-	debugfs_create_u32("session_buffers", 0644,
-			   dec->debugfs, &mpp->session_max_buffers);
+	mpp_procfs_create_u32("aclk", 0644,
+			      dec->procfs, &dec->aclk_info.debug_rate_hz);
+	mpp_procfs_create_u32("session_buffers", 0644,
+			      dec->procfs, &mpp->session_max_buffers);
 
 	return 0;
 }
 #else
-static inline int vdpu_debugfs_remove(struct mpp_dev *mpp)
+static inline int vdpu_procfs_remove(struct mpp_dev *mpp)
 {
 	return 0;
 }
 
-static inline int vdpu_debugfs_init(struct mpp_dev *mpp)
+static inline int vdpu_procfs_init(struct mpp_dev *mpp)
 {
 	return 0;
 }
@@ -826,7 +815,7 @@ static int vdpu_probe(struct platform_device *pdev)
 	}
 
 	mpp->session_max_buffers = VDPU1_SESSION_MAX_BUFFERS;
-	vdpu_debugfs_init(mpp);
+	vdpu_procfs_init(mpp);
 	dev_info(dev, "probing finish\n");
 
 	return 0;
@@ -839,7 +828,7 @@ static int vdpu_remove(struct platform_device *pdev)
 
 	dev_info(dev, "remove device\n");
 	mpp_dev_remove(&dec->mpp);
-	vdpu_debugfs_remove(&dec->mpp);
+	vdpu_procfs_remove(&dec->mpp);
 
 	return 0;
 }

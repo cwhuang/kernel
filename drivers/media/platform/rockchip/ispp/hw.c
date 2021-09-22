@@ -12,9 +12,12 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/pm_runtime.h>
+#include <media/videobuf2-dma-contig.h>
+#include <media/videobuf2-dma-sg.h>
 
 #include "common.h"
 #include "dev.h"
+#include "fec.h"
 #include "hw.h"
 #include "regs.h"
 
@@ -31,14 +34,6 @@
 struct irqs_data {
 	const char *name;
 	irqreturn_t (*irq_hdl)(int irq, void *ctx);
-};
-
-struct match_data {
-	int clks_num;
-	const char * const *clks;
-	enum rkispp_ver ispp_ver;
-	struct irqs_data *irqs;
-	int num_irqs;
 };
 
 /* using default value if reg no write for multi device */
@@ -61,7 +56,7 @@ static void default_sw_reg_flag(struct rkispp_device *dev)
 	u32 i, *flag;
 
 	for (i = 0; i < ARRAY_SIZE(reg); i++) {
-		flag = dev->sw_base_addr + reg[i] + ISPP_SW_REG_SIZE;
+		flag = dev->sw_base_addr + reg[i] + RKISP_ISPP_SW_REG_SIZE;
 		*flag = 0xffffffff;
 	}
 }
@@ -94,6 +89,8 @@ static void disable_sys_clk(struct rkispp_hw_dev *dev)
 
 static int enable_sys_clk(struct rkispp_hw_dev *dev)
 {
+	struct rkispp_device *ispp = dev->ispp[dev->cur_dev_id];
+	u32 w = dev->max_in.w ? dev->max_in.w : ispp->ispp_sdev.in_fmt.width;
 	int i, ret = -EINVAL;
 
 	for (i = 0; i < dev->clks_num; i++) {
@@ -102,6 +99,17 @@ static int enable_sys_clk(struct rkispp_hw_dev *dev)
 			goto err;
 	}
 
+	for (i = 0; i < dev->clk_rate_tbl_num; i++)
+		if (w <= dev->clk_rate_tbl[i].refer_data)
+			break;
+	if (!dev->is_single)
+		i++;
+	if (i > dev->clk_rate_tbl_num - 1)
+		i = dev->clk_rate_tbl_num - 1;
+	dev->core_clk_max = dev->clk_rate_tbl[i].clk_rate * 1000000;
+	dev->core_clk_min = dev->clk_rate_tbl[0].clk_rate * 1000000;
+	rkispp_set_clk_rate(dev->clks[0], dev->core_clk_min);
+	dev_dbg(dev->dev, "set ispp clk:%luHz\n", clk_get_rate(dev->clks[0]));
 	return 0;
 err:
 	for (--i; i >= 0; --i)
@@ -122,6 +130,11 @@ static irqreturn_t irq_hdl(int irq, void *ctx)
 	writel(mis_val, base + RKISPP_CTRL_INT_CLR);
 	spin_unlock(&hw_dev->irq_lock);
 
+	if (IS_ENABLED(CONFIG_VIDEO_ROCKCHIP_ISPP_FEC) && mis_val & FEC_INT) {
+		mis_val &= ~FEC_INT;
+		rkispp_fec_irq(hw_dev);
+	}
+
 	if (mis_val)
 		ispp->irq_hdl(mis_val, ispp);
 
@@ -129,9 +142,28 @@ static irqreturn_t irq_hdl(int irq, void *ctx)
 }
 
 static const char * const rv1126_ispp_clks[] = {
+	"clk_ispp",
 	"aclk_ispp",
 	"hclk_ispp",
-	"clk_ispp",
+};
+
+static const struct ispp_clk_info rv1126_ispp_clk_rate[] = {
+	{
+		.clk_rate = 20,
+		.refer_data = 0,
+	}, {
+		.clk_rate = 250,
+		.refer_data = 1920 //width
+	}, {
+		.clk_rate = 350,
+		.refer_data = 2688,
+	}, {
+		.clk_rate = 400,
+		.refer_data = 3072,
+	}, {
+		.clk_rate = 500,
+		.refer_data = 3840,
+	}
 };
 
 static struct irqs_data rv1126_ispp_irqs[] = {
@@ -139,9 +171,11 @@ static struct irqs_data rv1126_ispp_irqs[] = {
 	{"fec_irq", irq_hdl},
 };
 
-static const struct match_data rv1126_ispp_match_data = {
+static const struct ispp_match_data rv1126_ispp_match_data = {
 	.clks = rv1126_ispp_clks,
 	.clks_num = ARRAY_SIZE(rv1126_ispp_clks),
+	.clk_rate_tbl = rv1126_ispp_clk_rate,
+	.clk_rate_tbl_num = ARRAY_SIZE(rv1126_ispp_clk_rate),
 	.irqs = rv1126_ispp_irqs,
 	.num_irqs = ARRAY_SIZE(rv1126_ispp_irqs),
 	.ispp_ver = ISPP_V10,
@@ -158,7 +192,7 @@ static const struct of_device_id rkispp_hw_of_match[] = {
 static int rkispp_hw_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *match;
-	const struct match_data *match_data;
+	const struct ispp_match_data *match_data;
 	struct device_node *node = pdev->dev.of_node;
 	struct device *dev = &pdev->dev;
 	struct rkispp_hw_dev *hw_dev;
@@ -176,6 +210,7 @@ static int rkispp_hw_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, hw_dev);
 	hw_dev->dev = dev;
 	match_data = match->data;
+	hw_dev->match_data = match->data;
 	hw_dev->max_in.w = 0;
 	hw_dev->max_in.h = 0;
 	hw_dev->max_in.fps = 0;
@@ -201,6 +236,7 @@ static int rkispp_hw_probe(struct platform_device *pdev)
 		goto err;
 	}
 
+	rkispp_monitor = device_property_read_bool(dev, "rockchip,restart-monitor-en");
 	res = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
 					   match_data->irqs[0].name);
 	if (res) {
@@ -239,6 +275,8 @@ static int rkispp_hw_probe(struct platform_device *pdev)
 		hw_dev->clks[i] = clk;
 	}
 	hw_dev->clks_num = match_data->clks_num;
+	hw_dev->clk_rate_tbl = match_data->clk_rate_tbl;
+	hw_dev->clk_rate_tbl_num = match_data->clk_rate_tbl_num;
 
 	hw_dev->dev_num = 0;
 	hw_dev->cur_dev_id = 0;
@@ -247,16 +285,27 @@ static int rkispp_hw_probe(struct platform_device *pdev)
 	spin_lock_init(&hw_dev->irq_lock);
 	spin_lock_init(&hw_dev->buf_lock);
 	atomic_set(&hw_dev->refcnt, 0);
-	atomic_set(&hw_dev->power_cnt, 0);
 	INIT_LIST_HEAD(&hw_dev->list);
 	hw_dev->is_idle = true;
 	hw_dev->is_single = true;
-	if (!is_iommu_enable(dev)) {
-		ret = of_reserved_mem_device_init(dev);
-		if (ret)
-			dev_warn(dev, "No reserved memory region assign to ispp\n");
+	hw_dev->is_fec_ext = false;
+	hw_dev->is_dma_contig = true;
+	hw_dev->is_mmu = is_iommu_enable(dev);
+	ret = of_reserved_mem_device_init(dev);
+	if (ret) {
+		if (!hw_dev->is_mmu)
+			dev_warn(dev, "No reserved memory region. default cma area!\n");
+		else
+			hw_dev->is_dma_contig = false;
 	}
+	if (!hw_dev->is_mmu)
+		hw_dev->mem_ops = &vb2_dma_contig_memops;
+	else if (!hw_dev->is_dma_contig)
+		hw_dev->mem_ops = &vb2_dma_sg_memops;
+	else
+		hw_dev->mem_ops = &vb2_rdma_sg_memops;
 
+	rkispp_register_fec(hw_dev);
 	pm_runtime_enable(&pdev->dev);
 
 	return platform_driver_register(&rkispp_plat_drv);
@@ -270,6 +319,7 @@ static int rkispp_hw_remove(struct platform_device *pdev)
 
 	pm_runtime_disable(&pdev->dev);
 	mutex_destroy(&hw_dev->dev_lock);
+	rkispp_unregister_fec(hw_dev);
 	return 0;
 }
 
@@ -296,7 +346,6 @@ static int __maybe_unused rkispp_runtime_resume(struct device *dev)
 	writel(SW_SCL_BYPASS, base + RKISPP_SCL2_CTRL);
 	writel(OTHER_FORCE_UPD, base + RKISPP_CTRL_UPDATE);
 	writel(GATE_DIS_ALL, base + RKISPP_CTRL_CLKGATE);
-	writel(SW_SHP_DMA_DIS, base + RKISPP_SHARP_CORE_CTRL);
 	writel(SW_FEC2DDR_DIS, base + RKISPP_FEC_CORE_CTRL);
 	writel(0xfffffff, base + RKISPP_CTRL_INT_MSK);
 	writel(GATE_DIS_NR, base + RKISPP_CTRL_CLKGATE);
@@ -304,10 +353,11 @@ static int __maybe_unused rkispp_runtime_resume(struct device *dev)
 	for (i = 0; i < hw_dev->dev_num; i++) {
 		void *buf = hw_dev->ispp[i]->sw_base_addr;
 
-		memset(buf, 0, ISPP_SW_MAX_SIZE);
-		memcpy_fromio(buf, base, ISPP_SW_REG_SIZE);
+		memset(buf, 0, RKISP_ISPP_SW_MAX_SIZE);
+		memcpy_fromio(buf, base, RKISP_ISPP_SW_REG_SIZE);
 		default_sw_reg_flag(hw_dev->ispp[i]);
 	}
+	hw_dev->is_idle = true;
 	return 0;
 }
 

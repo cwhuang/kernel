@@ -51,6 +51,7 @@
 #include "block.h"
 #include "core.h"
 #include "card.h"
+#include "crypto.h"
 #include "host.h"
 #include "bus.h"
 #include "mmc_ops.h"
@@ -1304,6 +1305,8 @@ static void mmc_blk_data_prep(struct mmc_queue *mq, struct mmc_queue_req *mqrq,
 
 	memset(brq, 0, sizeof(struct mmc_blk_request));
 
+	mmc_crypto_prepare_req(mqrq);
+
 	brq->mrq.data = &brq->data;
 	brq->mrq.tag = req->tag;
 
@@ -1424,6 +1427,7 @@ static void mmc_blk_cqe_complete_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_request *mrq = &mqrq->brq.mrq;
 	struct request_queue *q = req->q;
 	struct mmc_host *host = mq->card->host;
+	enum mmc_issue_type issue_type = mmc_issue_type(mq, req);
 	unsigned long flags;
 	bool put_card;
 	int err;
@@ -1453,7 +1457,7 @@ static void mmc_blk_cqe_complete_rq(struct mmc_queue *mq, struct request *req)
 
 	spin_lock_irqsave(q->queue_lock, flags);
 
-	mq->in_flight[mmc_issue_type(mq, req)] -= 1;
+	mq->in_flight[issue_type] -= 1;
 
 	put_card = (mmc_tot_in_flight(mq) == 0);
 
@@ -2484,8 +2488,8 @@ static int mmc_rpmb_chrdev_release(struct inode *inode, struct file *filp)
 	struct mmc_rpmb_data *rpmb = container_of(inode->i_cdev,
 						  struct mmc_rpmb_data, chrdev);
 
-	put_device(&rpmb->dev);
 	mmc_blk_put(rpmb->md);
+	put_device(&rpmb->dev);
 
 	return 0;
 }
@@ -2872,7 +2876,8 @@ static void mmc_blk_remove_debugfs(struct mmc_card *card,
 
 #endif /* CONFIG_DEBUG_FS */
 
-extern struct mmc_card *this_card;
+struct mmc_card *this_card;
+EXPORT_SYMBOL(this_card);
 static int mmc_blk_probe(struct mmc_card *card)
 {
 	struct mmc_blk_data *md, *part_md;
@@ -2908,13 +2913,9 @@ static int mmc_blk_probe(struct mmc_card *card)
 
 	dev_set_drvdata(&card->dev, md);
 
-#if defined(CONFIG_MMC_DW_ROCKCHIP) || defined(CONFIG_MMC_SDHCI_OF_ARASAN)
-	if (card->host->restrict_caps & RESTRICT_CARD_TYPE_EMMC) {
+#if IS_ENABLED(CONFIG_MMC_DW_ROCKCHIP) || IS_ENABLED(CONFIG_MMC_SDHCI_OF_ARASAN)
+	if (card->host->restrict_caps & RESTRICT_CARD_TYPE_EMMC)
 		this_card = card;
-		md->disk->emmc_disk = 1;
-	} else {
-		md->disk->emmc_disk = 0;
-	}
 #endif
 
 	if (mmc_add_disk(md))

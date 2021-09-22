@@ -8,6 +8,21 @@
 
 #define RKISP_MAX_BUS_CLK 8
 
+struct isp_clk_info {
+	u32 clk_rate;
+	u32 refer_data;
+};
+
+struct isp_match_data {
+	const char * const *clks;
+	int num_clks;
+	enum rkisp_isp_ver isp_ver;
+	const struct isp_clk_info  *clk_rate_tbl;
+	int num_clk_rate_tbl;
+	struct isp_irqs_data *irqs;
+	int num_irqs;
+};
+
 struct rkisp_hw_dev {
 	const struct isp_match_data *match_data;
 	struct platform_device *pdev;
@@ -16,8 +31,9 @@ struct rkisp_hw_dev {
 	void __iomem *base_addr;
 	struct clk *clks[RKISP_MAX_BUS_CLK];
 	int num_clks;
-	const unsigned int *clk_rate_tbl;
+	const struct isp_clk_info *clk_rate_tbl;
 	int num_clk_rate_tbl;
+	struct reset_control *reset;
 	int mipi_irq;
 	enum rkisp_isp_ver isp_ver;
 	struct rkisp_device *isp[DEV_MAX];
@@ -28,7 +44,6 @@ struct rkisp_hw_dev {
 	/* lock for multi dev */
 	struct mutex dev_lock;
 	spinlock_t rdbk_lock;
-	atomic_t power_cnt;
 	atomic_t refcnt;
 
 	/* share buf for multi dev */
@@ -37,12 +52,21 @@ struct rkisp_hw_dev {
 	struct rkisp_ispp_buf *cur_buf;
 	struct rkisp_ispp_buf *nxt_buf;
 	struct list_head list;
-
+	struct list_head rpt_list;
+	struct rkisp_dummy_buffer dummy_buf;
+	const struct vb2_mem_ops *mem_ops;
+	bool is_dma_contig;
+	bool is_mmu;
 	bool is_idle;
 	bool is_single;
 	bool is_mi_update;
 	bool is_thunderboot;
+
+	bool is_feature_on;
+	u64 iq_feature;
+	bool is_buf_init;
 };
 
 int rkisp_register_irq(struct rkisp_hw_dev *dev);
+void rkisp_soft_reset(struct rkisp_hw_dev *dev);
 #endif

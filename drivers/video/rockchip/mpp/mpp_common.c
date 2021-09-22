@@ -16,11 +16,13 @@
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/of_irq.h>
+#include <linux/proc_fs.h>
 #include <linux/pm_runtime.h>
 #include <linux/poll.h>
 #include <linux/regmap.h>
 #include <linux/rwsem.h>
 #include <linux/mfd/syscon.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/nospec.h>
@@ -40,13 +42,6 @@
 #define MPP_IOC_CFG_V1	_IOW(MPP_IOC_MAGIC, 1, unsigned int)
 #define MPP_IOC_CFG_V2	_IOW(MPP_IOC_MAGIC, 2, unsigned int)
 
-/* cmd support for version 1 */
-#define MPP_CMD_QUERY_SUPPORT_MASK_V1		(0x00000003)
-#define MPP_CMD_INIT_SUPPORT_MASK_V1		(0x00000007)
-#define MPP_CMD_SEND_SUPPORT_MASK_V1		(0x0000001F)
-#define MPP_CMD_POLL_SUPPORT_MASK_V1		(0x00000001)
-#define MPP_CMD_CONTROL_SUPPORT_MASK_V1		(0x00000007)
-
 /* input parmater structure for version 1 */
 struct mpp_msg_v1 {
 	__u32 cmd;
@@ -55,6 +50,38 @@ struct mpp_msg_v1 {
 	__u32 offset;
 	__u64 data_ptr;
 };
+
+#ifdef CONFIG_PROC_FS
+const char *mpp_device_name[MPP_DEVICE_BUTT] = {
+	[MPP_DEVICE_VDPU1]		= "VDPU1",
+	[MPP_DEVICE_VDPU2]		= "VDPU2",
+	[MPP_DEVICE_VDPU1_PP]		= "VDPU1_PP",
+	[MPP_DEVICE_VDPU2_PP]		= "VDPU2_PP",
+	[MPP_DEVICE_HEVC_DEC]		= "HEVC_DEC",
+	[MPP_DEVICE_RKVDEC]		= "RKVDEC",
+	[MPP_DEVICE_AVSPLUS_DEC]	= "AVSPLUS_DEC",
+	[MPP_DEVICE_RKVENC]		= "RKVENC",
+	[MPP_DEVICE_VEPU1]		= "VEPU1",
+	[MPP_DEVICE_VEPU2]		= "VEPU2",
+	[MPP_DEVICE_VEPU22]		= "VEPU22",
+	[MPP_DEVICE_IEP2]		= "IEP2",
+};
+
+const char *enc_info_item_name[ENC_INFO_BUTT] = {
+	[ENC_INFO_BASE]		= "null",
+	[ENC_INFO_WIDTH]	= "width",
+	[ENC_INFO_HEIGHT]	= "height",
+	[ENC_INFO_FORMAT]	= "format",
+	[ENC_INFO_FPS_IN]	= "fps_in",
+	[ENC_INFO_FPS_OUT]	= "fps_out",
+	[ENC_INFO_RC_MODE]	= "rc_mode",
+	[ENC_INFO_BITRATE]	= "bitrate",
+	[ENC_INFO_GOP_SIZE]	= "gop_size",
+	[ENC_INFO_FPS_CALC]	= "fps_calc",
+	[ENC_INFO_PROFILE]	= "profile",
+};
+
+#endif
 
 static void mpp_free_task(struct kref *ref);
 
@@ -184,9 +211,13 @@ int mpp_power_off(struct mpp_dev *mpp)
 	if (mpp->hw_ops->clk_off)
 		mpp->hw_ops->clk_off(mpp);
 
-	pm_runtime_mark_last_busy(mpp->dev);
-	pm_runtime_put_autosuspend(mpp->dev);
 	pm_relax(mpp->dev);
+	if (mpp_taskqueue_get_pending_task(mpp->queue)) {
+		pm_runtime_mark_last_busy(mpp->dev);
+		pm_runtime_put_autosuspend(mpp->dev);
+	} else {
+		pm_runtime_put_sync_suspend(mpp->dev);
+	}
 
 	return 0;
 }
@@ -289,10 +320,12 @@ static void mpp_task_timeout_work(struct work_struct *work_s)
 					     struct mpp_task,
 					     timeout_work);
 
-	if (test_and_set_bit(TASK_STATE_HANDLE, &task->state))
+	if (test_and_set_bit(TASK_STATE_HANDLE, &task->state)) {
+		mpp_err("task has been handled\n");
 		return;
+	}
 
-	mpp_err("task %p processing timed out!\n", task);
+	mpp_err("task %p processing time out!\n", task);
 	if (!task->session) {
 		mpp_err("task %p, task->session is null.\n", task);
 		return;
@@ -782,24 +815,15 @@ int mpp_taskqueue_init(struct mpp_taskqueue *queue,
 
 static int mpp_check_cmd_v1(__u32 cmd)
 {
-	int ret;
-	__u64 mask = 0;
+	bool found;
 
-	if (cmd >= MPP_CMD_CONTROL_BASE)
-		mask = MPP_CMD_CONTROL_SUPPORT_MASK_V1;
-	else if (cmd >= MPP_CMD_POLL_BASE)
-		mask = MPP_CMD_POLL_SUPPORT_MASK_V1;
-	else if (cmd >= MPP_CMD_SEND_BASE)
-		mask = MPP_CMD_SEND_SUPPORT_MASK_V1;
-	else if (cmd >= MPP_CMD_INIT_BASE)
-		mask = MPP_CMD_INIT_SUPPORT_MASK_V1;
-	else
-		mask = MPP_CMD_QUERY_SUPPORT_MASK_V1;
+	found = (cmd < MPP_CMD_QUERY_BUTT) ? true : false;
+	found = (cmd >= MPP_CMD_INIT_BASE && cmd < MPP_CMD_INIT_BUTT) ? true : found;
+	found = (cmd >= MPP_CMD_SEND_BASE && cmd < MPP_CMD_SEND_BUTT) ? true : found;
+	found = (cmd >= MPP_CMD_POLL_BASE && cmd < MPP_CMD_POLL_BUTT) ? true : found;
+	found = (cmd >= MPP_CMD_CONTROL_BASE && cmd < MPP_CMD_CONTROL_BUTT) ? true : found;
 
-	cmd &= 0x3F;
-	ret = ((mask >> cmd) & 0x1) ? 0 : (-EINVAL);
-
-	return ret;
+	return found ? 0 : -EINVAL;
 }
 
 static int mpp_parse_msg_v1(struct mpp_msg_v1 *msg,
@@ -835,6 +859,35 @@ static inline int mpp_msg_is_last(struct mpp_request *req)
 	return flag;
 }
 
+static __u32 mpp_get_cmd_butt(__u32 cmd)
+{
+	__u32 mask = 0;
+
+	switch (cmd) {
+	case MPP_CMD_QUERY_BASE:
+		mask = MPP_CMD_QUERY_BUTT;
+		break;
+	case MPP_CMD_INIT_BASE:
+		mask = MPP_CMD_INIT_BUTT;
+		break;
+
+	case MPP_CMD_SEND_BASE:
+		mask = MPP_CMD_SEND_BUTT;
+		break;
+	case MPP_CMD_POLL_BASE:
+		mask = MPP_CMD_POLL_BUTT;
+		break;
+	case MPP_CMD_CONTROL_BASE:
+		mask = MPP_CMD_CONTROL_BUTT;
+		break;
+	default:
+		mpp_err("unknow dev cmd 0x%x\n", cmd);
+		break;
+	}
+
+	return mask;
+}
+
 static int mpp_process_request(struct mpp_session *session,
 			       struct mpp_service *srv,
 			       struct mpp_request *req,
@@ -855,12 +908,34 @@ static int mpp_process_request(struct mpp_session *session,
 	case MPP_CMD_QUERY_HW_ID: {
 		struct mpp_hw_info *hw_info;
 
-		mpp = session->mpp;
+		mpp = NULL;
+		if (session && session->mpp) {
+			mpp = session->mpp;
+		} else {
+			u32 client_type;
+
+			if (get_user(client_type, (u32 __user *)req->data))
+				return -EFAULT;
+
+			mpp_debug(DEBUG_IOCTL, "client %d\n", client_type);
+			client_type = array_index_nospec(client_type, MPP_DEVICE_BUTT);
+			if (test_bit(client_type, &srv->hw_support))
+				mpp = srv->sub_devices[client_type];
+		}
 		if (!mpp)
 			return -EINVAL;
 		hw_info = mpp->var->hw_info;
 		mpp_debug(DEBUG_IOCTL, "hw_id %08x\n", hw_info->hw_id);
 		if (put_user(hw_info->hw_id, (u32 __user *)req->data))
+			return -EFAULT;
+	} break;
+	case MPP_CMD_QUERY_CMD_SUPPORT: {
+		__u32 cmd = 0;
+
+		if (get_user(cmd, (u32 __user *)req->data))
+			return -EINVAL;
+
+		if (put_user(mpp_get_cmd_butt(cmd), (u32 __user *)req->data))
 			return -EFAULT;
 	} break;
 	case MPP_CMD_INIT_CLIENT_TYPE: {
@@ -921,7 +996,8 @@ static int mpp_process_request(struct mpp_session *session,
 	} break;
 	case MPP_CMD_SET_REG_WRITE:
 	case MPP_CMD_SET_REG_READ:
-	case MPP_CMD_SET_REG_ADDR_OFFSET: {
+	case MPP_CMD_SET_REG_ADDR_OFFSET:
+	case MPP_CMD_SET_RCB_INFO: {
 		msgs->flags |= req->flags;
 		msgs->set_cnt++;
 	} break;
@@ -1133,11 +1209,15 @@ static int mpp_dev_open(struct inode *inode, struct file *filp)
 	mutex_init(&session->done_lock);
 	INIT_LIST_HEAD(&session->pending_list);
 	INIT_LIST_HEAD(&session->done_list);
+	INIT_LIST_HEAD(&session->session_link);
 
 	init_waitqueue_head(&session->wait);
 	atomic_set(&session->task_count, 0);
 	atomic_set(&session->release_request, 0);
 
+	mutex_lock(&srv->session_lock);
+	list_add_tail(&session->session_link, &srv->session_list);
+	mutex_unlock(&srv->session_lock);
 	filp->private_data = (void *)session;
 
 	mpp_debug_leave();
@@ -1182,6 +1262,9 @@ static int mpp_dev_release(struct inode *inode, struct file *filp)
 		mpp_dma_session_destroy(session->dma);
 		up_read(&mpp->iommu_info->rw_sem);
 	}
+	mutex_lock(&session->srv->session_lock);
+	list_del_init(&session->session_link);
+	mutex_unlock(&session->srv->session_lock);
 
 	kfree(session);
 	filp->private_data = NULL;
@@ -1335,6 +1418,28 @@ int mpp_check_req(struct mpp_request *req, int base,
 	return 0;
 }
 
+int mpp_extract_reg_offset_info(struct reg_offset_info *off_inf,
+				struct mpp_request *req)
+{
+	int max_size = ARRAY_SIZE(off_inf->elem);
+	int cnt = req->size / sizeof(off_inf->elem[0]);
+
+	if ((cnt + off_inf->cnt) > max_size) {
+		mpp_err("count %d, total %d, max_size %d\n",
+			cnt, off_inf->cnt, max_size);
+		return -EINVAL;
+	}
+	if (copy_from_user(&off_inf->elem[off_inf->cnt],
+				req->data,
+				req->size)) {
+		mpp_err("copy_from_user failed\n");
+		return -EINVAL;
+	}
+	off_inf->cnt += cnt;
+
+	return 0;
+}
+
 int mpp_query_reg_offset_info(struct reg_offset_info *off_inf,
 			      u32 index)
 {
@@ -1457,20 +1562,44 @@ int mpp_task_dump_mem_region(struct mpp_dev *mpp,
 int mpp_task_dump_reg(struct mpp_dev *mpp,
 		      struct mpp_task *task)
 {
-	u32 i, s, e;
-
 	if (!task)
 		return -EIO;
 
-	mpp_err("--- dump register ---\n");
-	if (task->reg) {
-		s = task->hw_info->reg_start;
-		e = task->hw_info->reg_end;
+	if (mpp_debug_unlikely(DEBUG_DUMP_ERR_REG)) {
+		mpp_err("--- dump task register ---\n");
+		if (task->reg) {
+			u32 i;
+			u32 s = task->hw_info->reg_start;
+			u32 e = task->hw_info->reg_end;
+
+			for (i = s; i <= e; i++) {
+				u32 reg = i * sizeof(u32);
+
+				mpp_err("reg[%03d]: %04x: 0x%08x\n",
+					i, reg, task->reg[i]);
+			}
+		}
+	}
+
+	return 0;
+}
+
+int mpp_task_dump_hw_reg(struct mpp_dev *mpp, struct mpp_task *task)
+{
+	if (!task)
+		return -EIO;
+
+	if (mpp_debug_unlikely(DEBUG_DUMP_ERR_REG)) {
+		u32 i;
+		u32 s = task->hw_info->reg_start;
+		u32 e = task->hw_info->reg_end;
+
+		mpp_err("--- dump hardware register ---\n");
 		for (i = s; i <= e; i++) {
 			u32 reg = i * sizeof(u32);
 
 			mpp_err("reg[%03d]: %04x: 0x%08x\n",
-				i, reg, task->reg[i]);
+				i, reg, readl_relaxed(mpp->reg_base + reg));
 		}
 	}
 
@@ -1482,7 +1611,6 @@ static int mpp_iommu_handle(struct iommu_domain *iommu,
 			    unsigned long iova,
 			    int status, void *arg)
 {
-	u32 i, s, e;
 	struct mpp_dev *mpp = (struct mpp_dev *)arg;
 	struct mpp_task *task = mpp_taskqueue_get_running_task(mpp->queue);
 
@@ -1492,16 +1620,7 @@ static int mpp_iommu_handle(struct iommu_domain *iommu,
 		return -EIO;
 
 	mpp_task_dump_mem_region(mpp, task);
-
-	s = task->hw_info->reg_start;
-	e = task->hw_info->reg_end;
-	mpp_err("--- dump register ---\n");
-	for (i = s; i <= e; i++) {
-		u32 reg = i * sizeof(u32);
-
-		mpp_err("reg[%03d]: %04x: 0x%08x\n",
-			i, reg, readl_relaxed(mpp->reg_base + reg));
-	}
+	mpp_task_dump_hw_reg(mpp, task);
 
 	if (mpp->iommu_info->hdl)
 		mpp->iommu_info->hdl(iommu, iommu_dev, iova, status, arg);
@@ -1636,24 +1755,31 @@ int mpp_dev_remove(struct mpp_dev *mpp)
 
 irqreturn_t mpp_dev_irq(int irq, void *param)
 {
-	irqreturn_t ret = IRQ_NONE;
+	bool ret = false;
 	struct mpp_dev *mpp = param;
 	struct mpp_task *task = mpp->cur_task;
+	irqreturn_t irq_ret = IRQ_NONE;
 
 	if (task) {
 		/* if wait or delayed work timeout, abort request will turn on,
 		 * isr should not to response, and handle it in delayed work
 		 */
-		if (test_and_set_bit(TASK_STATE_HANDLE, &task->state))
-			return IRQ_HANDLED;
+		if (test_and_set_bit(TASK_STATE_HANDLE, &task->state)) {
+			mpp_err("error, task has been handled, irq_status %08x\n", mpp->irq_status);
+			goto done;
+		}
 		cancel_delayed_work(&task->timeout_work);
-
+		/* normal condition, set state and wake up isr thread */
 		set_bit(TASK_STATE_IRQ, &task->state);
-		if (mpp->dev_ops->irq)
-			ret = mpp->dev_ops->irq(mpp);
+		ret = true;
+	} else {
+		mpp_err("error, task is null\n");
 	}
+done:
+	if (mpp->dev_ops->irq)
+		irq_ret = mpp->dev_ops->irq(mpp);
 
-	return ret;
+	return ret ? irq_ret : IRQ_HANDLED;
 }
 
 irqreturn_t mpp_dev_isr_sched(int irq, void *param)
@@ -1824,6 +1950,8 @@ unsigned long mpp_get_clk_info_rate_hz(struct mpp_clk_info *clk_info,
 	case CLK_MODE_ADVANCED: {
 		if (clk_info->advanced_rate_hz)
 			clk_rate_hz = clk_info->advanced_rate_hz;
+		else if (clk_info->normal_rate_hz)
+			clk_rate_hz = clk_info->normal_rate_hz;
 		else
 			clk_rate_hz = clk_info->default_rate_hz;
 	} break;
@@ -1852,6 +1980,49 @@ int mpp_clk_set_rate(struct mpp_clk_info *clk_info,
 
 	return 0;
 }
+
+#ifdef CONFIG_PROC_FS
+static int fops_show_u32(struct seq_file *file, void *v)
+{
+	u32 *val = file->private;
+
+	seq_printf(file, "%d\n", *val);
+
+	return 0;
+}
+
+static int fops_open_u32(struct inode *inode, struct file *file)
+{
+	return single_open(file, fops_show_u32, PDE_DATA(inode));
+}
+
+static ssize_t fops_write_u32(struct file *file, const char __user *buf,
+			      size_t count, loff_t *ppos)
+{
+	int rc;
+	struct seq_file *priv = file->private_data;
+
+	rc = kstrtou32_from_user(buf, count, 0, priv->private);
+	if (rc)
+		return rc;
+
+	return count;
+}
+
+static const struct file_operations procfs_fops_u32 = {
+	.open = fops_open_u32,
+	.read = seq_read,
+	.release = single_release,
+	.write = fops_write_u32,
+};
+
+struct proc_dir_entry *
+mpp_procfs_create_u32(const char *name, umode_t mode,
+		      struct proc_dir_entry *parent, void *data)
+{
+	return proc_create_data(name, mode, parent, &procfs_fops_u32, data);
+}
+#endif
 
 int px30_workaround_combo_init(struct mpp_dev *mpp)
 {
@@ -1885,7 +2056,11 @@ int px30_workaround_combo_init(struct mpp_dev *mpp)
 			iommu->mmu_num++;
 		}
 		iommu->grf_val = mpp->grf_info->val & MPP_GRF_VAL_MASK;
+		if (mpp->hw_ops->clk_on)
+			mpp->hw_ops->clk_on(mpp);
 		iommu->dte_addr =  mpp_iommu_get_dte_addr(iommu);
+		if (mpp->hw_ops->clk_off)
+			mpp->hw_ops->clk_off(mpp);
 		INIT_LIST_HEAD(&iommu->link);
 		mutex_lock(&mpp->queue->mmu_lock);
 		list_add_tail(&iommu->link, &mpp->queue->mmu_list);

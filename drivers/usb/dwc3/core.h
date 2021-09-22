@@ -250,7 +250,9 @@
 
 /* Global User Control 1 Register */
 #define DWC3_GUCTL1_TX_IPGAP_LINECHECK_DIS	BIT(28)
+#define DWC3_GUCTL1_DEV_FORCE_20_CLK_FOR_30_CLK	BIT(26)
 #define DWC3_GUCTL1_DEV_L1_EXIT_BY_HW	BIT(24)
+#define DWC3_GUCTL1_PARKMODE_DISABLE_SS	BIT(17)
 
 /* Global Status Register */
 #define DWC3_GSTS_OTG_IP	BIT(10)
@@ -308,6 +310,10 @@
 #define DWC31_GTXFIFOSIZ_TXFDEF(n)	((n) & 0x7fff)	/* DWC_usb31 only */
 #define DWC3_GTXFIFOSIZ_TXFDEF(n)	((n) & 0xffff)
 #define DWC3_GTXFIFOSIZ_TXFSTADDR(n)	((n) & 0xffff0000)
+
+/* Global RX Fifo Size Register */
+#define DWC31_GRXFIFOSIZ_RXFDEP(n)	((n) & 0x7fff)	/* DWC_usb31 only */
+#define DWC3_GRXFIFOSIZ_RXFDEP(n)	((n) & 0xffff)
 
 /* Global Event Size Registers */
 #define DWC3_GEVNTSIZ_INTMASK		BIT(31)
@@ -1025,6 +1031,8 @@ struct dwc3_scratchpad_array {
  *			change quirk.
  * @dis_tx_ipgap_linecheck_quirk: set if we disable u2mac linestate
  *			check during HS transmit.
+ * @parkmode_disable_ss_quirk: set if we need to disable all SuperSpeed
+ *			instances in park mode.
  * @xhci_slow_suspend_quirk: set if need an extraordinary delay to wait
  *			for xHC enter the Halted state after the Run/Stop
  *			(R/S) bit is cleared to '0'.
@@ -1042,6 +1050,7 @@ struct dwc3_scratchpad_array {
  * 	3	- Reserved
  * @dis_metastability_quirk: set to disable metastability quirk.
  * @needs_fifo_resize: set if we want to resize TXFIFO.
+ * @fifo_resize_status: true if the TXFIFOs have been resized.
  * @drd_connected: true when usb connected to a host or a device(drd mode),
  *			false otherwise.
  * @en_runtime: true when need runtime PM management. For example, RK3399 need
@@ -1227,6 +1236,7 @@ struct dwc3 {
 	unsigned		dis_u2_freeclk_exists_quirk:1;
 	unsigned		dis_del_phy_power_chg_quirk:1;
 	unsigned		dis_tx_ipgap_linecheck_quirk:1;
+	unsigned		parkmode_disable_ss_quirk:1;
 	unsigned		xhci_slow_suspend_quirk:1;
 	unsigned		xhci_trb_ent_quirk:1;
 	unsigned		xhci_warm_reset_on_suspend_quirk:1;
@@ -1237,6 +1247,7 @@ struct dwc3 {
 
 	unsigned		dis_metastability_quirk:1;
 	unsigned		needs_fifo_resize:1;
+	unsigned		fifo_resize_status:1;
 	unsigned		drd_connected:1;
 	unsigned		en_runtime:1;
 

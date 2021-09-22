@@ -73,7 +73,6 @@ struct sink_info {
  * filt_state: multiframe read back mode to filt irq event
  * tx_first: flags for dmatx first Y_STATE irq
  * memory: compact or big/little endian byte order for tx/rx
- * is_isp_end: flags of isp frame end
  */
 struct rkisp_csi_device {
 	struct rkisp_device *ispdev;
@@ -83,11 +82,15 @@ struct rkisp_csi_device {
 	struct kfifo rdbk_kfifo;
 	spinlock_t rdbk_lock;
 	int max_pad;
+	int frame_cnt;
+	int frame_cnt_x1;
+	int frame_cnt_x2;
+	int frame_cnt_x3;
+	u32 rd_mode;
 	u8 mipi_di[CSI_PAD_MAX - 1];
 	u8 filt_state[CSI_F_MAX];
 	u8 tx_first[HDR_DMA_MAX];
 	u8 memory;
-	bool is_isp_end;
 };
 
 int rkisp_register_csi_subdev(struct rkisp_device *dev,
@@ -95,7 +98,7 @@ int rkisp_register_csi_subdev(struct rkisp_device *dev,
 void rkisp_unregister_csi_subdev(struct rkisp_device *dev);
 
 int rkisp_csi_config_patch(struct rkisp_device *dev);
-void rkisp_trigger_read_back(struct rkisp_csi_device *csi, u8 dma2frm);
+void rkisp_trigger_read_back(struct rkisp_csi_device *csi, u8 dma2frm, u32 mode);
 int rkisp_csi_trigger_event(struct rkisp_device *dev, u32 cmd, void *arg);
 void rkisp_csi_sof(struct rkisp_device *dev, u8 id);
 #endif
