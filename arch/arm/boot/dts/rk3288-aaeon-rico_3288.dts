@@ -40,15 +40,15 @@
 			native-mode = <&timing0>;
 
 			timing0: timing0 {
-				clock-frequency = <68930000>;
+				clock-frequency = <83500000>;
 				hactive = <1280>;
 				vactive = <800>;
-				hback-porch = <100>;
-				hfront-porch = <18>;
-				vback-porch = <8>;
-				vfront-porch = <6>;
-				hsync-len = <10>;
-				vsync-len = <2>;
+				hsync-len = <18>;
+				hback-porch = <56>;
+				hfront-porch = <56>;
+				vsync-len = <67>;
+				vback-porch = <60>;
+				vfront-porch = <60>;
 				hsync-active = <0>;
 				vsync-active = <0>;
 				de-active = <0>;
