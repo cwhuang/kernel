@@ -249,6 +249,18 @@ config USB_SERIAL_EDGEPORT_TI
 	  To compile this driver as a module, choose M here: the
 	  module will be called io_ti.
 
+config USB_SERIAL_EXAR
+	tristate "Exar USB Serial Driver"
+	help
+	  This driver will work with any USB UART function in these Exar devices:
+	  XR21V1410/1412/1414
+	  XR21B1411
+	  XR21B1420/1422/1424
+	  XR22801/802/804
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called exar.
+
 config USB_SERIAL_F81232
 	tristate "USB Fintek F81232 Single Port Serial Driver"
 	help
