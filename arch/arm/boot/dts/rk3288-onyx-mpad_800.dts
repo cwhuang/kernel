@@ -582,3 +582,12 @@
 
 	/delete-node/ simple-audio-card,dai-link@1;
 };
+
+&uart3 {
+	status = "disabled";
+};
+
+&vcc_3g {
+	regulator-always-on;
+	regulator-boot-on;
+};
