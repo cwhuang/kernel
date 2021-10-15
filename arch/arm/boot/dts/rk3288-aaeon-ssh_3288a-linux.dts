@@ -7,10 +7,13 @@
 /dts-v1/;
 #include "rk3288-aaeon-rico_3288-linux.dts"
 
+/delete-node/ &lvds;
+/delete-node/ &lvds_panel;
+/delete-node/ &route_lvds;
+/delete-node/ &vopb_out_lvds;
+/delete-node/ &vopl_out_lvds;
+
 / {
-	chosen {
-		bootargs = "earlycon=uart8250,mmio32,0xff690000 vmalloc=496M rw root=PARTUUID=614e0000-0000 rootfstype=ext4 rootwait board_vendor=AAEON board_name=ssh_3288a product_name=ssh_3288a snd_soc_rt5670.quirk=0x040C";
-	};
 
 	vcc_23: v23-regulator {
 		compatible = "regulator-fixed";
@@ -37,10 +40,6 @@
 	vcc9-supply = <&vcc_io>;
 	vcc10-supply = <&vcc_23>;
 	vcc11-supply = <&vcc_23>;
-};
-
-&route_lvds {
-	status = "disabled";
 };
 
 &pinctrl {

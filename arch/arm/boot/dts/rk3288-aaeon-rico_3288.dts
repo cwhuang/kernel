@@ -24,7 +24,7 @@
 
 	/delete-node/ panel;
 
-	lvds-panel {
+	lvds_panel: lvds-panel {
 		status = "okay";
 		compatible ="simple-panel";
 		backlight = <&backlight>;
