@@ -4,10 +4,12 @@
 #define MAX_STRING_LEN 50
 #ifdef PLATFORM_VERSION
 #define OS_VERSION PLATFORM_VERSION
+#elif defined(DEBIAN_VERSION)
+#define OS_VERSION "Debian " DEBIAN_VERSION
 #else
-#define OS_VERSION "Debian 10.8"
+#define OS_VERSION "Debian 10.11"
 #endif
-#ifdef CONFIG_ANDROID_VERSION
+#ifdef CONFIG_ANDROID_BINDER_IPC
 #define OS_TYPE "Android"
 #else
 #define OS_TYPE "Linux"
