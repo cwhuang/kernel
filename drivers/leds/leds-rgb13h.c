@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2019 Fuzhou Rockchip Electronics Co., Ltd.
-/*
- * v0.1.1 Fix the bug that when pwm is disabled, the light cannot be turned off
- */
+
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-subdev.h>
 #include <linux/delay.h>
@@ -19,9 +17,8 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/version.h>
-#include <linux/pwm.h>
 
-#define DRIVER_VERSION		KERNEL_VERSION(0, 0x01, 0x1)
+#define DRIVER_VERSION		KERNEL_VERSION(0, 0x01, 0x0)
 
 #define FLASH_TIMEOUT_MIN	1000
 #define FLASH_TIMEOUT_STEP	1000
@@ -41,7 +38,6 @@ struct rgb13h_led {
 	/* maximum flash timeout */
 	u32 max_flash_tm;
 	u32 intensity;
-	u32 intensity_torch;
 	bool strobe_state;
 	/* brightness cache */
 	u32 torch_brightness;
@@ -59,8 +55,6 @@ struct rgb13h_led {
 
 	u32 module_index;
 	const char *module_facing;
-	struct pwm_device   *pwm;
-	struct pwm_state pwm_state;
 };
 
 static struct rgb13h_led *fled_cdev_to_led(struct led_classdev_flash *fled_cdev)
@@ -76,25 +70,7 @@ static struct rgb13h_led *sd_to_led(struct v4l2_subdev *subdev)
 static int rgb13h_set_output(struct rgb13h_led *led, bool on)
 {
 	mutex_lock(&led->lock);
-	if (!IS_ERR(led->gpio_en))
-		gpiod_direction_output(led->gpio_en, on);
-	if (!IS_ERR(led->pwm)) {
-		if (led->led_mode == V4L2_FLASH_LED_MODE_TORCH)
-			led->pwm_state.duty_cycle =
-				div_u64(led->intensity_torch * led->pwm_state.period, led->max_mm_current);
-		else
-			led->pwm_state.duty_cycle =
-				div_u64(led->intensity * led->pwm_state.period, led->max_flash_current);
-		if (on) {
-			led->pwm_state.enabled = true;
-			pwm_apply_state(led->pwm, &led->pwm_state);
-			dev_dbg(&led->pdev->dev, "led pwm duty=%llu, period=%llu, polarity=%d\n",
-				led->pwm_state.duty_cycle, led->pwm_state.period, led->pwm_state.polarity);
-		} else {
-			led->pwm_state.enabled = false;
-			pwm_apply_state(led->pwm, &led->pwm_state);
-		}
-	}
+	gpiod_direction_output(led->gpio_en, on);
 	if (!on) {
 		led->strobe_state = false;
 		if (led->waiting) {
@@ -211,20 +187,7 @@ static int rgb13h_led_parse_dt(struct rgb13h_led *led,
 	led->gpio_en = devm_gpiod_get(dev, "enable", GPIOD_ASIS);
 	if (IS_ERR(led->gpio_en)) {
 		ret = PTR_ERR(led->gpio_en);
-		dev_info(dev, "Unable to claim enable-gpio\n");
-	}
-	led->pwm = devm_pwm_get(dev, NULL);
-	if (IS_ERR(led->pwm)) {
-		ret = PTR_ERR(led->pwm);
-		dev_info(dev, "Unable to get pwm device\n");
-	} else {
-		led->pwm_state.period = led->pwm->args.period;
-		led->pwm_state.polarity = led->pwm->args.polarity;
-		dev_dbg(dev, "period %llu, polarity %d\n",
-			led->pwm_state.period, led->pwm_state.polarity);
-	}
-	if (IS_ERR(led->gpio_en) && IS_ERR(led->pwm)) {
-		dev_err(dev, "Neither enable-gpio nor pwm can be get,return error\n");
+		dev_err(dev, "Unable to claim enable-gpio\n");
 		return ret;
 	}
 
@@ -236,11 +199,6 @@ static int rgb13h_led_parse_dt(struct rgb13h_led *led,
 	if (ret < 0)
 		dev_warn(dev,
 			"led-max-microamp DT property missing\n");
-	if (led->max_mm_current <= 0) {
-		led->max_mm_current = 20000;
-		dev_warn(dev,
-			"get led-max-microamp error value, used default value 20000\n");
-	}
 
 	ret = of_property_read_u32(child_node, "flash-max-microamp",
 				&led->max_flash_current);
@@ -249,11 +207,6 @@ static int rgb13h_led_parse_dt(struct rgb13h_led *led,
 			"flash-max-microamp DT property missing\n");
 		return ret;
 	}
-	if (led->max_flash_current <= 0) {
-		led->max_flash_current = 20000;
-		dev_warn(dev,
-			"get flash-max-microamp error value, used default value 20000\n");
-	}
 
 	ret = of_property_read_u32(child_node, "flash-max-timeout-us",
 				&led->max_flash_tm);
@@ -261,11 +214,6 @@ static int rgb13h_led_parse_dt(struct rgb13h_led *led,
 		dev_err(dev,
 			"flash-max-timeout-us DT property missing\n");
 		return ret;
-	}
-	if (led->max_flash_tm <= 0) {
-		led->max_flash_tm = 1000000;
-		dev_warn(dev,
-			"get flash-max-timeout-us error value, used default value 1s\n");
 	}
 
 	*sub_node = child_node;
@@ -314,10 +262,8 @@ static int rgb13h_get_ctrl(struct v4l2_ctrl *ctrl)
 		ctrl->val = led->strobe_state;
 		break;
 	case V4L2_CID_FLASH_INTENSITY:
-		ctrl->val = led->intensity;
-		break;
 	case V4L2_CID_FLASH_TORCH_INTENSITY:
-		ctrl->val = led->intensity_torch;
+		ctrl->val = led->intensity;
 		break;
 	case V4L2_CID_FLASH_LED_MODE:
 		ctrl->val = led->led_mode;
@@ -341,7 +287,7 @@ static int rgb13h_set_ctrl(struct v4l2_ctrl *ctrl)
 		led->led_mode = ctrl->val;
 		rgb13h_set_output(led, LED_OFF);
 		if (led->led_mode == V4L2_FLASH_LED_MODE_TORCH)
-			return rgb13h_set_output(led, LED_ON);
+			return rgb13h_set_output(led, !!led->intensity);
 		break;
 
 	case V4L2_CID_FLASH_STROBE_SOURCE:
@@ -359,13 +305,12 @@ static int rgb13h_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_FLASH_TIMEOUT:
 		return rgb13h_led_flash_timeout_set(&led->fled_cdev, ctrl->val);
 	case V4L2_CID_FLASH_INTENSITY:
-		led->intensity = ctrl->val;
 		break;
 	case V4L2_CID_FLASH_TORCH_INTENSITY:
-		led->intensity_torch = ctrl->val;
 		if (led->led_mode != V4L2_FLASH_LED_MODE_TORCH)
 			break;
-		return rgb13h_set_output(led, LED_ON);
+		led->intensity = ctrl->val;
+		return rgb13h_set_output(led, !!ctrl->val);
 	default:
 		dev_err(&led->pdev->dev,
 			"ctrl 0x%x not supported\n", ctrl->id);
@@ -413,24 +358,18 @@ static int rgb13h_init_controls(struct rgb13h_led *led)
 			  led->max_flash_tm);
 	led->timeout = led->max_flash_tm;
 	/* V4L2_CID_FLASH_INTENSITY */
-	ctrl = v4l2_ctrl_new_std(&led->ctrls, &rgb13h_ctrl_ops,
+	v4l2_ctrl_new_std(&led->ctrls, &rgb13h_ctrl_ops,
 			  V4L2_CID_FLASH_INTENSITY, 0,
 			  led->max_flash_current,
-			  1,
+			  led->max_flash_current,
 			  led->max_flash_current);
-	if (ctrl && IS_ERR(led->pwm))
-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-	led->intensity = led->max_flash_current;
 	/* V4L2_CID_FLASH_TORCH_INTENSITY */
-	ctrl = v4l2_ctrl_new_std(&led->ctrls, &rgb13h_ctrl_ops,
+	v4l2_ctrl_new_std(&led->ctrls, &rgb13h_ctrl_ops,
 			  V4L2_CID_FLASH_TORCH_INTENSITY, 0,
 			  led->max_mm_current,
-			  1,
+			  led->max_mm_current,
 			  led->max_mm_current);
-	if (ctrl && IS_ERR(led->pwm))
-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-	led->intensity_torch = led->max_mm_current;
-
+	led->intensity = led->max_mm_current;
 	/* V4L2_CID_FLASH_FAULT */
 	ctrl = v4l2_ctrl_new_std(&led->ctrls, &rgb13h_ctrl_ops,
 				 V4L2_CID_FLASH_FAULT, 0,
@@ -563,9 +502,9 @@ static int rgb13h_led_probe(struct platform_device *pdev)
 		facing[0] = 'b';
 	else
 		facing[0] = 'f';
-	snprintf(sd->name, sizeof(sd->name), "m%02d_%s_%s",
+	snprintf(sd->name, sizeof(sd->name), "m%02d_%s_%s %s",
 		 led->module_index, facing,
-		 led_cdev->name);
+		 led_cdev->name, dev_name(sd->dev));
 	ret = media_entity_pads_init(&sd->entity, 0, NULL);
 	if (ret < 0)
 		goto error_v4l2_flash_init;
