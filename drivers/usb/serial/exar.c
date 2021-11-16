@@ -565,8 +565,9 @@ static int set_flow_mode(struct xr_usb_serial *xr, struct tty_struct *tty,
 	    (xr->DeviceProduct == 0x1424))
 		gpio_mode |= 0x300;
 
-	set_reg(xr, xr->reg_map.uart_flow_addr, flow);
-	set_reg(xr, xr->reg_map.uart_gpio_mode_addr, gpio_mode);
+	dev_info(&xr->control->dev, "enable RS-485 mode\n");
+	set_reg(xr, xr->reg_map.uart_flow_addr, UART_FLOW_MODE_NONE);
+	set_reg(xr, xr->reg_map.uart_gpio_mode_addr, 0xB);
 	return 0;
 }
 
