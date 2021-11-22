@@ -56,27 +56,3 @@
 		};
 	};
 };
-
-&sound {
-	simple-audio-card,dai-link@0 {
-		format = "i2s";
-		cpu {
-			sound-dai = <&i2s>;
-		};
-
-		codec {
-			sound-dai = <&hdmi>;
-		};
-	};
-
-	simple-audio-card,dai-link@1 {
-		format = "i2s";
-		cpu {
-			sound-dai = <&i2s>;
-		};
-
-		codec {
-			sound-dai = <&rt5670>;
-		};
-	};
-};
